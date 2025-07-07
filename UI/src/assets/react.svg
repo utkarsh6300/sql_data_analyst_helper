@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="35.93" height="32" viewBox="0 0 256 228" fill="none">
+  <!-- Background circle -->
+  <circle cx="128" cy="114" r="100" fill="#f0f8ff" stroke="#4a90e2" stroke-width="2"/>
+  
+  <!-- Database icon -->
+  <rect x="88" y="74" width="80" height="60" rx="8" fill="#4a90e2" stroke="#2c5aa0" stroke-width="2"/>
+  <rect x="88" y="84" width="80" height="40" fill="#6ba3d6"/>
+  <circle cx="128" cy="104" r="3" fill="#ffffff"/>
+  <circle cx="128" cy="114" r="3" fill="#ffffff"/>
+  <circle cx="128" cy="124" r="3" fill="#ffffff"/>
+  
+  <!-- SQL/Query lines -->
+  <path d="M60 140 L80 140" stroke="#2c5aa0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M60 150 L90 150" stroke="#2c5aa0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M60 160 L85 160" stroke="#2c5aa0" stroke-width="3" stroke-linecap="round"/>
+  
+  <path d="M176 140 L196 140" stroke="#2c5aa0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M166 150 L196 150" stroke="#2c5aa0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M171 160 L196 160" stroke="#2c5aa0" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- AI/Brain icon -->
+  <circle cx="128" cy="180" r="15" fill="#ff6b6b" stroke="#d63031" stroke-width="2"/>
+  <path d="M128 170 Q135 175 128 180 Q121 175 128 170" fill="#ffffff"/>
+  <path d="M128 180 Q135 185 128 190 Q121 185 128 180" fill="#ffffff"/>
+  
+  <!-- Connection lines -->
+  <path d="M128 134 L128 165" stroke="#4a90e2" stroke-width="2" stroke-dasharray="4,4"/>
+  <path d="M88 104 L60 140" stroke="#4a90e2" stroke-width="2" stroke-dasharray="4,4"/>
+  <path d="M168 104 L196 140" stroke="#4a90e2" stroke-width="2" stroke-dasharray="4,4"/>
+  
+  <!-- Text "AH" for Analyst Helper -->
+  <text x="128" y="210" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#2c5aa0">AH</text>
+</svg>
