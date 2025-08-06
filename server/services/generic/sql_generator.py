@@ -79,11 +79,11 @@ def generate_sql_query(
             temperature=0.3,
         )
         
-        generated_sql = response.strip()
-        logger.info(f"✅ Generated SQL: {generated_sql}")
-        logger.info(f"📊 Tokens used: {response.usage.total_tokens if response.usage else 'Unknown'}")
-        
-        return generated_sql
+        logger.info(f"✅ Generated SQL: {response}")
+
+        # Clean up the response to get only the SQL
+        sql_query = response.strip()
+        return sql_query
         
     except Exception as e:
         logger.error(f"❌ Error generating SQL: {str(e)}")
@@ -158,7 +158,6 @@ def regenerate_sql_query(
         )
         generated_sql = response.strip()
         logger.info(f"✅ Regenerated SQL: {generated_sql}")
-        logger.info(f"📊 Tokens used: {response.usage.total_tokens if response.usage else 'Unknown'}")
         
         return generated_sql
         

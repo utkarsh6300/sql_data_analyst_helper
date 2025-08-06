@@ -121,7 +121,7 @@ export const chatApi = {
     return handleResponse(response);
   },
 
-  async generateSql(projectId, chatId, text) {
+  async generateSql(chatId, text) {
     const response = await fetch(`${API_BASE_URL}/chats/${chatId}/generate`, {
       method: 'POST',
       headers: {
@@ -132,7 +132,7 @@ export const chatApi = {
     return handleResponse(response);
   },
 
-  async feedback(projectId, chatId, feedback) {
+  async feedback(chatId, feedback) {
     const response = await fetch(
       `${API_BASE_URL}/chats/${chatId}/feedback`,
       {
@@ -143,6 +143,17 @@ export const chatApi = {
         body: JSON.stringify(feedback)
       }
     );
+    return handleResponse(response);
+  },
+
+  async updateChat(chatId, update) {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(update),
+    });
     return handleResponse(response);
   },
 };

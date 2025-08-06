@@ -11,13 +11,6 @@ from db.config import DATABASE_TYPE, VECTOR_DB_TYPE
 # Import routes
 from routes import projects, chats, project_chats
 
-# Run database migration and create all tables
-try:
-    from db.migrate import migrate_database
-    migrate_database()
-except Exception as e:
-    print(f"⚠️ Warning: Database migration failed: {e}")
-
 create_all_tables()
 
 app = FastAPI(title="Analyst Helper API", version="1.0.0")

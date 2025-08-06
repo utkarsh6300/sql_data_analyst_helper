@@ -60,10 +60,13 @@ function ChatDetail({ onError }) {
         throw new Error('Chat not found');
       }
 
+      // Convert query_history to messages format
       const historyWithIds = (currentChat.query_history || []).map((msg, index) => ({
-        ...msg,
         id: msg.id || Date.now() + index,
-        correct: msg.correct || null
+        text: msg.text,
+        sql: msg.sql,
+        timestamp: msg.timestamp,
+        correct: msg.is_correct || null
       }));
 
       setMessages(historyWithIds);
@@ -102,7 +105,7 @@ function ChatDetail({ onError }) {
     scrollToBottom();
 
     try {
-      const response = await chatApi.generateSql(projectId, chatId, input);
+      const response = await chatApi.generateSql(chatId, input);
       setMessages(prev => prev.map(msg =>
         msg.id === newMessage.id
           ? { ...msg, sql: response.sql }
@@ -125,12 +128,12 @@ function ChatDetail({ onError }) {
           : msg
       ));
 
-      const response = await chatApi.feedback(projectId, chatId, {
+      const response = await chatApi.feedback(chatId, {
         is_correct: isCorrect,
         add_to_samples: false
       });
 
-      // Update feedback_enabled based on the response if provided
+      // Update feedback_enabled based on the response
       if (response.feedback_enabled !== undefined) {
         setFeedbackEnabled(response.feedback_enabled);
       }
@@ -138,7 +141,7 @@ function ChatDetail({ onError }) {
       setFeedbackSubmitted(true);
       setTimeout(() => setFeedbackSubmitted(false), 2000);
 
-      // If marked as incorrect, generate a new query
+      // If marked as incorrect and new SQL is provided, add it to messages
       if (!isCorrect && response.sql) {
         const newMessage = {
           id: Date.now(),
@@ -165,15 +168,13 @@ function ChatDetail({ onError }) {
 
     setAddingSample(messageId);
     try {
-      const response = await chatApi.feedback(projectId, chatId, {
-        message_id: messageId,
-        is_correct: true,
-        add_to_samples: true,
-        text: message.text,
-        sql: message.sql
+      // Update chat to add the last query to samples
+      const response = await chatApi.updateChat(chatId, {
+        last_query_feedback: true,
+        add_to_samples: true
       });
 
-      // Update feedback_enabled to false after adding sample
+      // Update feedback_enabled based on the response
       if (response.feedback_enabled !== undefined) {
         setFeedbackEnabled(response.feedback_enabled);
       }
@@ -371,8 +372,7 @@ function ChatDetail({ onError }) {
                                 </IconButton>
                               </Tooltip>
 
-                              {/* Show buttons based on feedback_enabled state */}
-                              {/* When feedback_enabled is null: show correct/wrong buttons */}
+                              {/* Show feedback buttons based on feedback_enabled state */}
                               {feedbackEnabled === null && message.correct === null && (
                                 <>
                                   <Tooltip title="Correct SQL">
@@ -404,7 +404,7 @@ function ChatDetail({ onError }) {
                                 </>
                               )}
 
-                              {/* When feedback_enabled is true: show add button */}
+                              {/* Show add sample button when feedback is enabled and query is marked correct */}
                               {feedbackEnabled === true && message.correct === true && (
                                 <Tooltip title="Add as sample query">
                                   <IconButton
@@ -425,8 +425,6 @@ function ChatDetail({ onError }) {
                                   </IconButton>
                                 </Tooltip>
                               )}
-
-                              {/* When feedback_enabled is false: show no additional buttons (only copy) */}
                             </Stack>
                           )}
                         </Box>

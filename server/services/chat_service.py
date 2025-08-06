@@ -1,3 +1,4 @@
+from sqlalchemy.orm.attributes import flag_modified
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -62,8 +63,8 @@ class ChatService:
             if isinstance(result, dict) and "question" in result and "sql" in result:
                 additional_samples[result["question"]] = result["sql"]
         
-        # Combine project samples with similar samples
-        all_samples = {**(project.sample_queries or {}), **additional_samples}
+        # All samples are fetched from the vector store
+        all_samples = additional_samples
         
         # Convert list responses to strings for SQL generator
         schema_text = similar_schema[0] if similar_schema and len(similar_schema) > 0 else ""
@@ -110,7 +111,10 @@ class ChatService:
         # Only regenerate SQL if feedback indicates incorrect query
         if not feedback.is_correct:
             return ChatService._regenerate_sql(db, chat, last_query["text"])
-        
+        # if correct, do update feedback_enabled to true
+        chat.feedback_enabled = True
+        db.commit()
+
         return {"status": "success", "feedback_enabled": chat.feedback_enabled}
 
     @staticmethod
@@ -138,8 +142,8 @@ class ChatService:
             if isinstance(result, dict) and "question" in result and "sql" in result:
                 additional_samples[result["question"]] = result["sql"]
         
-        # Combine project samples with similar samples
-        all_samples = {**(project.sample_queries or {}), **additional_samples}
+        # All samples are fetched from the vector store
+        all_samples = additional_samples
         
         # Convert list responses to strings for SQL generator
         ddl_text = similar_ddl[0] if similar_ddl and len(similar_ddl) > 0 else ""
@@ -166,7 +170,7 @@ class ChatService:
             "sql": new_sql,
             "timestamp": datetime.utcnow().isoformat()
         })
-        chat.query_history = history
+        flag_modified(chat, "query_history")
         db.commit()
         
         return {"sql": new_sql, "chat_id": chat.id, "feedback_enabled": chat.feedback_enabled}
@@ -200,9 +204,6 @@ class ChatService:
             if history:
                 last_query = history[-1]
                 project = chat.project
-                current_samples = project.sample_queries or {}
-                current_samples[last_query["text"]] = last_query["sql"]
-                project.sample_queries = current_samples
                 
                 # Also add to vector store for future similarity searches
                 print(f"💾 Adding corrected Q&A pair to vector store for project {project.id}...")
