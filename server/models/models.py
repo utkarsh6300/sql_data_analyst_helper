@@ -1,17 +1,17 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, Text
+from sqlalchemy import Column, String, ForeignKey, JSON, Boolean, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
+import uuid
 from .base import Base
+from .vectorDbModels import SQLQuery, DDLStatement, DocumentationItem
 
 
 class Project(Base):
     __tablename__ = "projects"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String, nullable=False)
-    schema = Column(Text, nullable=False)  # Database schema
-    documentation = Column(Text, nullable=True)  # Project documentation
-    sample_queries = Column(JSON, nullable=True)  # Sample text-to-SQL mappings
     created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
     
     chats = relationship("Chat", back_populates="project")
@@ -23,8 +23,8 @@ class Project(Base):
 class Chat(Base):
     __tablename__ = "chats"
     
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
     query_history = Column(JSON, nullable=True)  # Store conversation history
     created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
     feedback_enabled = Column(Boolean, default=None, nullable=True)  # Flag to enable/disable feedback

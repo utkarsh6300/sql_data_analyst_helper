@@ -1,237 +1,125 @@
-# Analyst Helper API
+# Analyst Helper Server
 
-A FastAPI-based application that provides SQL generation capabilities using AI and vector search.
+A FastAPI server for managing projects with SQL query generation capabilities.
 
-## Project Structure
+## Database Schema
 
-The project has been refactored into a clean, modular architecture with clear separation of concerns:
+### Projects
+Projects now support multiple DDL statements, documentation items, and question-SQL pairs through separate tables:
 
-```
-server/
-├── main.py                 # Application entry point
-├── routes/                 # API route handlers
-│   ├── __init__.py
-│   ├── projects.py         # Project-related endpoints
-│   ├── chats.py           # Chat-related endpoints
-│   └── project_chats.py   # Project-specific chat endpoints
-├── services/              # Business logic layer
-│   ├── __init__.py
-│   ├── project_service.py    # Project business logic
-│   ├── chat_service.py       # Chat business logic
-│   ├── project_chat_service.py # Project chat business logic
-│   ├── vector_service.py     # Vector database operations
-│   ├── sql_generator.py      # SQL generation logic
-│   └── llm.py               # LLM integration
-├── db/                    # Database layer
-│   ├── __init__.py
-│   ├── config.py          # Database configuration
-│   ├── database.py        # Database connection setup
-│   ├── operations.py      # Generic database operations
-│   └── repositories.py    # Model-specific database operations
-├── models/                # Data models
-│   ├── base.py           # Base model class
-│   ├── models.py         # SQLAlchemy models
-│   └── vectorDbModels.py # Vector database models
-├── schemas/               # Pydantic schemas
-│   └── schemas.py        # Request/response schemas
-├── vectorDB/             # Vector database integration
-│   ├── chroma.py         # ChromaDB integration
-│   ├── postgres.py       # PostgreSQL vector integration
-│   └── utils.py          # Vector utilities
-└── requirements.txt      # Python dependencies
-```
+- **projects**: Main project information (name, created_at)
+- **sql_queries**: Stores question-SQL pairs with embeddings
+- **ddl_statements**: Stores DDL statements with embeddings  
+- **documentation_items**: Stores documentation with embeddings
+- **chats**: Stores conversation history
 
-## Architecture Overview
+### New Table Structure
 
-### 1. Routes Layer (`routes/`)
-- **Purpose**: Handle HTTP requests and responses
-- **Responsibilities**: 
-  - Input validation
-  - Request routing
-  - Response formatting
-  - Error handling
-- **Files**:
-  - `projects.py`: Project CRUD operations
-  - `chats.py`: Chat operations and SQL generation
-  - `project_chats.py`: Project-specific chat management
+#### SQLQuery Table
+- `id`: Primary key
+- `project_id`: Foreign key to projects
+- `question`: The natural language question
+- `sql`: The corresponding SQL query
+- `embedding`: Vector embedding (populated by vector service)
+- `sql_metadata`: JSON metadata
+- `created_at`: Unix timestamp
 
-### 2. Services Layer (`services/`)
-- **Purpose**: Business logic and orchestration
-- **Responsibilities**:
-  - Business rules implementation
-  - Data transformation
-  - External service integration
-  - Transaction management
-- **Files**:
-  - `project_service.py`: Project business logic
-  - `chat_service.py`: Chat and SQL generation logic
-  - `project_chat_service.py`: Project chat operations
-  - `vector_service.py`: Vector database operations
-  - `sql_generator.py`: SQL generation using LLM
-  - `llm.py`: LLM integration
+#### DDLStatement Table
+- `id`: Primary key
+- `project_id`: Foreign key to projects
+- `ddl`: The DDL statement
+- `embedding`: Vector embedding (populated by vector service)
+- `ddl_metadata`: JSON metadata
+- `created_at`: Unix timestamp
 
-### 3. Database Layer (`db/`)
-- **Purpose**: Data persistence and access
-- **Responsibilities**:
-  - Database connections
-  - CRUD operations
-  - Query optimization
-  - Transaction management
-- **Files**:
-  - `config.py`: Database configuration
-  - `database.py`: Database connection setup
-  - `operations.py`: Generic database operations
-  - `repositories.py`: Model-specific operations
-
-### 4. Models Layer (`models/`)
-- **Purpose**: Data structure definitions
-- **Responsibilities**:
-  - Database schema definition
-  - Data validation
-  - Relationship mapping
-- **Files**:
-  - `base.py`: Base model class
-  - `models.py`: SQLAlchemy ORM models
-  - `vectorDbModels.py`: Vector database models
-
-### 5. Schemas Layer (`schemas/`)
-- **Purpose**: API request/response validation
-- **Responsibilities**:
-  - Input validation
-  - Response serialization
-  - API documentation
-- **Files**:
-  - `schemas.py`: Pydantic schemas for all endpoints
-
-## Key Design Patterns
-
-### Repository Pattern
-- **Location**: `db/repositories.py`
-- **Purpose**: Abstract database operations
-- **Benefits**: 
-  - Testability
-  - Code reusability
-  - Separation of concerns
-
-### Service Layer Pattern
-- **Location**: `services/`
-- **Purpose**: Encapsulate business logic
-- **Benefits**:
-  - Business rule centralization
-  - Transaction management
-  - External service integration
-
-### Dependency Injection
-- **Usage**: Throughout the application
-- **Purpose**: Loose coupling between components
-- **Benefits**:
-  - Testability
-  - Flexibility
-  - Maintainability
+#### DocumentationItem Table
+- `id`: Primary key
+- `project_id`: Foreign key to projects
+- `documentation`: The documentation text
+- `embedding`: Vector embedding (populated by vector service)
+- `documentation_metadata`: JSON metadata
+- `created_at`: Unix timestamp
 
 ## API Endpoints
 
-### Projects
-- `POST /projects/` - Create a new project
-- `GET /projects/` - Get all projects
-- `GET /projects/{project_id}` - Get a specific project
-- `POST /projects/{project_id}/documentation` - Update project documentation
-- `POST /projects/{project_id}/sample-queries` - Add sample queries
-- `POST /projects/{project_id}/schema` - Add DDL schema
+### Legacy Endpoints (Backward Compatible)
+- `POST /projects/{project_id}/documentation` - Add single documentation item
+- `POST /projects/{project_id}/sample-queries` - Add sample queries as batch
+- `POST /projects/{project_id}/schema` - Add single DDL statement
 
-### Chats
-- `GET /chats/{chat_id}` - Get a specific chat
-- `POST /chats/` - Create a new chat
-- `POST /chats/{chat_id}/generate` - Generate SQL for a query
-- `POST /chats/{chat_id}/feedback` - Provide feedback on generated SQL
-- `PATCH /chats/{chat_id}` - Update chat settings
+### New Multiple Items Endpoints
+- `POST /projects/{project_id}/documentation-items` - Add multiple documentation items
+- `POST /projects/{project_id}/question-sql-pairs` - Add multiple question-SQL pairs
+- `POST /projects/{project_id}/ddl-statements` - Add multiple DDL statements
 
-### Project Chats
-- `GET /projects/{project_id}/chats` - Get all chats for a project
-- `POST /projects/{project_id}/chats` - Create a new chat for a project
+### Example Usage
 
-## Vector Database Configuration
-
-The application supports multiple vector database backends for storing and searching embeddings:
-
-### Supported Vector Databases
-
-1. **PostgreSQL with pgvector** (Default)
-   - Uses PostgreSQL with the pgvector extension
-   - Configured via `VECTOR_DATABASE_URL` environment variable
-   - Falls back to `DATABASE_URL` if not specified
-
-2. **ChromaDB**
-   - Local file-based vector database
-   - Stores data in `./chroma_db` directory by default
-
-### Configuration
-
-Set the vector database type using environment variables:
-
-```bash
-# Use PostgreSQL (default)
-VECTOR_DB_TYPE=postgres
-
-# Use ChromaDB
-VECTOR_DB_TYPE=chroma
+#### Add Multiple Documentation Items
+```json
+POST /projects/1/documentation-items
+{
+  "documentation_items": [
+    {
+      "documentation": "This table stores user information",
+      "metadata": {"category": "user_management", "version": "1.0"}
+    },
+    {
+      "documentation": "This table stores order details",
+      "metadata": {"category": "orders", "version": "1.0"}
+    }
+  ]
+}
 ```
 
-### Runtime Switching
-
-You can switch vector databases at runtime using the API:
-
-```bash
-# Switch to ChromaDB
-curl -X POST "http://localhost:8000/projects/switch-vector-db" \
-  -H "Content-Type: application/json" \
-  -d '{"vector_db_type": "chroma"}'
-
-# Switch to PostgreSQL
-curl -X POST "http://localhost:8000/projects/switch-vector-db" \
-  -H "Content-Type: application/json" \
-  -d '{"vector_db_type": "postgres"}'
-
-# Get current vector database info
-curl "http://localhost:8000/projects/vector-db-info"
+#### Add Multiple Question-SQL Pairs
+```json
+POST /projects/1/question-sql-pairs
+{
+  "question_sql_pairs": [
+    {
+      "question": "How many users are there?",
+      "sql": "SELECT COUNT(*) FROM users",
+      "metadata": {"difficulty": "easy", "category": "aggregation"}
+    },
+    {
+      "question": "Show me all active orders",
+      "sql": "SELECT * FROM orders WHERE status = 'active'",
+      "metadata": {"difficulty": "medium", "category": "filtering"}
+    }
+  ]
+}
 ```
 
-### Health Check
-
-The health check endpoint shows the current vector database:
-
-```bash
-curl "http://localhost:8000/health"
-# Returns: {"status": "healthy", "database": "POSTGRESQL", "vector_database": "POSTGRES"}
+#### Add Multiple DDL Statements
+```json
+POST /projects/1/ddl-statements
+{
+  "ddl_statements": [
+    {
+      "ddl": "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(255))",
+      "metadata": {"table_name": "users", "version": "1.0"}
+    },
+    {
+      "ddl": "CREATE TABLE orders (id INT PRIMARY KEY, user_id INT, amount DECIMAL(10,2))",
+      "metadata": {"table_name": "orders", "version": "1.0"}
+    }
+  ]
+}
 ```
 
-## Getting Started
+## Benefits of New Structure
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+1. **Scalability**: Support for unlimited DDL statements, documentation items, and question-SQL pairs per project
+2. **Metadata**: Rich metadata support for each item
+3. **Vector Search**: Each item gets its own embedding for better semantic search
+4. **Backward Compatibility**: Legacy endpoints still work
+5. **Atomic Operations**: Each item is stored atomically with proper error handling
+6. **Better Organization**: Clear separation of concerns with dedicated tables
 
-2. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+## Setup
 
-3. Run the application:
-   ```bash
-   uvicorn main:app --reload
-   ```
+1. Install dependencies: `pip install -r requirements.txt`
+2. Set up database configuration in `db/config.py`
+3. Run the server: `python main.py`
 
-4. Access the API documentation:
-   - Swagger UI: http://localhost:8000/docs
-   - ReDoc: http://localhost:8000/redoc
-
-## Benefits of Refactoring
-
-1. **Maintainability**: Clear separation of concerns makes the code easier to maintain
-2. **Testability**: Each layer can be tested independently
-3. **Scalability**: New features can be added without affecting existing code
-4. **Reusability**: Common operations are abstracted into reusable components
-5. **Readability**: Code is organized logically and easy to navigate
-6. **Flexibility**: Easy to swap implementations (e.g., different databases, LLM providers) 
+The database tables will be created automatically when the server starts. 

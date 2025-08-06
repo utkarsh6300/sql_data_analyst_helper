@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import models.models as models
 from db.operations import DatabaseOperations
+import uuid
 
 class ProjectRepository:
     """Repository for Project model operations"""
@@ -12,7 +13,7 @@ class ProjectRepository:
         return DatabaseOperations.create(db, models.Project, **kwargs)
     
     @staticmethod
-    def get_project_by_id(db: Session, project_id: int) -> Optional[models.Project]:
+    def get_project_by_id(db: Session, project_id: uuid.UUID) -> Optional[models.Project]:
         """Get project by ID"""
         return DatabaseOperations.get_by_id(db, models.Project, project_id)
     
@@ -34,6 +35,11 @@ class ProjectRepository:
         """Delete project"""
         return DatabaseOperations.delete(db, project)
 
+    @staticmethod
+    def count_chats_by_project(db: Session, project_id: uuid.UUID) -> int:
+        """Count chats for a specific project"""
+        return DatabaseOperations.count(db, models.Chat, project_id=project_id)
+
 class ChatRepository:
     """Repository for Chat model operations"""
     
@@ -43,12 +49,12 @@ class ChatRepository:
         return DatabaseOperations.create(db, models.Chat, **kwargs)
     
     @staticmethod
-    def get_chat_by_id(db: Session, chat_id: int) -> Optional[models.Chat]:
+    def get_chat_by_id(db: Session, chat_id: uuid.UUID) -> Optional[models.Chat]:
         """Get chat by ID"""
         return DatabaseOperations.get_by_id(db, models.Chat, chat_id)
     
     @staticmethod
-    def get_chats_by_project(db: Session, project_id: int, skip: int = 0, limit: int = 50) -> List[models.Chat]:
+    def get_chats_by_project(db: Session, project_id: uuid.UUID, skip: int = 0, limit: int = 50) -> List[models.Chat]:
         """Get all chats for a specific project"""
         return db.query(models.Chat)\
             .filter(models.Chat.project_id == project_id)\
@@ -65,9 +71,4 @@ class ChatRepository:
     @staticmethod
     def delete_chat(db: Session, chat: models.Chat) -> bool:
         """Delete chat"""
-        return DatabaseOperations.delete(db, chat)
-    
-    @staticmethod
-    def count_chats_by_project(db: Session, project_id: int) -> int:
-        """Count chats for a specific project"""
-        return DatabaseOperations.count(db, models.Chat, project_id=project_id) 
+        return DatabaseOperations.delete(db, chat) 

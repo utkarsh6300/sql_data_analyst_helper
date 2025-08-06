@@ -164,6 +164,19 @@ function ProjectList({ onError }) {
                 <CardActions sx={{ p: 3, pt: 0 }}>
                   <Button
                     fullWidth
+                    variant="outlined"
+                    startIcon={<FolderIcon />}
+                    onClick={() => navigate(`/project/${project.id}`)}
+                    sx={{
+                      py: 1.5,
+                      fontWeight: 500,
+                      mb: 1
+                    }}
+                  >
+                    View Details
+                  </Button>
+                  <Button
+                    fullWidth
                     variant="contained"
                     startIcon={<ChatIcon />}
                     onClick={() => navigate(`/project/${project.id}/chat`)}

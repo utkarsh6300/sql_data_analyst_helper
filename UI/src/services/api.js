@@ -40,35 +40,63 @@ export const projectApi = {
     return handleResponse(response);
   },
 
-  async addDocumentation(projectId, documentationData) {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/documentation`, {
+  async addDocumentationItems(projectId, documentationItems) {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/documentation-items`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(documentationData),
+      body: JSON.stringify({ documentation_items: documentationItems }),
     });
     return handleResponse(response);
   },
 
-  async addSchema(projectId, schemaData) {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/schema`, {
+  async addQuestionSqlPairs(projectId, questionSqlPairs) {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/question-sql-pairs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(schemaData),
+      body: JSON.stringify({ question_sql_pairs: questionSqlPairs }),
     });
     return handleResponse(response);
   },
 
-  async addSampleQueries(projectId, sampleQueriesData) {
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/sample-queries`, {
+  async addDdlStatements(projectId, ddlStatements) {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/ddl-statements`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(sampleQueriesData),
+      body: JSON.stringify({ ddl_statements: ddlStatements }),
+    });
+    return handleResponse(response);
+  },
+
+  async deleteProject(projectId) {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}`, {
+      method: 'DELETE',
+    });
+    return handleResponse(response);
+  },
+
+  async deleteDocumentationItem(itemId) {
+    const response = await fetch(`${API_BASE_URL}/projects/documentation/${itemId}`, {
+      method: 'DELETE',
+    });
+    return handleResponse(response);
+  },
+
+  async deleteQuestionSqlItem(itemId) {
+    const response = await fetch(`${API_BASE_URL}/projects/question-sql/${itemId}`, {
+      method: 'DELETE',
+    });
+    return handleResponse(response);
+  },
+
+  async deleteDdlItem(itemId) {
+    const response = await fetch(`${API_BASE_URL}/projects/ddl/${itemId}`, {
+      method: 'DELETE',
     });
     return handleResponse(response);
   },

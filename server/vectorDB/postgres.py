@@ -10,7 +10,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
+from datetime import datetime
 from langchain_huggingface import HuggingFaceEmbeddings
+
+# Import Base and models
+from models.base import Base
+from models.models import Project
+from models.vectorDbModels import SQLQuery, DDLStatement, DocumentationItem
 
 # Load environment variables
 load_dotenv()
@@ -72,11 +78,17 @@ class PostgresDB_VectorStore():
         """Create a new project"""
         try:
             with self._get_session() as session:
+                # Convert project_id to UUID if it's a string
+                if isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
+                
                 project = Project(
                     id=project_id,
                     name=name,
-                    description=description,
-                    created_at=int(pd.Timestamp.now().timestamp())
+                    created_at=datetime.utcnow().isoformat()
                 )
                 session.add(project)
                 session.commit()
@@ -89,12 +101,18 @@ class PostgresDB_VectorStore():
         """Get project details"""
         try:
             with self._get_session() as session:
+                # Convert project_id to UUID if it's a string
+                if isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
+                
                 project = session.query(Project).filter(Project.id == project_id).first()
                 if project:
                     return {
-                        "id": project.id,
+                        "id": str(project.id),
                         "name": project.name,
-                        "description": project.description,
                         "created_at": project.created_at
                     }
                 return None
@@ -108,9 +126,8 @@ class PostgresDB_VectorStore():
             with self._get_session() as session:
                 projects = session.query(Project).all()
                 return [{
-                    "id": p.id,
+                    "id": str(p.id),
                     "name": p.name,
-                    "description": p.description,
                     "created_at": p.created_at
                 } for p in projects]
         except Exception as e:
@@ -121,6 +138,13 @@ class PostgresDB_VectorStore():
         """Delete a project and all its associated data"""
         try:
             with self._get_session() as session:
+                # Convert project_id to UUID if it's a string
+                if isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
+                
                 project = session.query(Project).filter(Project.id == project_id).first()
                 if project:
                     session.delete(project)
@@ -140,34 +164,38 @@ class PostgresDB_VectorStore():
             if not project_id:
                 raise ValueError("project_id is required")
             
+            # Convert project_id to UUID if it's a string
+            if isinstance(project_id, str):
+                try:
+                    project_id = uuid.UUID(project_id)
+                except ValueError:
+                    raise ValueError(f"Invalid project_id format: {project_id}")
+            
             # Ensure project exists
             with self._get_session() as session:
                 project = session.query(Project).filter(Project.id == project_id).first()
                 if not project:
                     raise ValueError(f"Project {project_id} does not exist")
             
-            doc_id = deterministic_uuid(f"{question}{sql}{project_id}") + "-sql"
             embedding = self.generate_embedding(f"{question} {sql}")
             
             if not embedding:
                 return None
             
-            metadata = {"project_id": project_id}
+            metadata = {"project_id": str(project_id)}
             
             with self._get_session() as session:
                 sql_query = SQLQuery(
-                    id=doc_id,
                     project_id=project_id,
                     question=question,
                     sql=sql,
                     embedding=embedding,
-                    metadata=json.dumps(metadata),
+                    sql_metadata=json.dumps(metadata),
                     created_at=int(pd.Timestamp.now().timestamp())
                 )
                 session.add(sql_query)
                 session.commit()
-            
-            return doc_id
+                return str(sql_query.id)
             
         except Exception as e:
             print(f"Error adding question-SQL pair: {str(e)}")
@@ -182,33 +210,37 @@ class PostgresDB_VectorStore():
             if not project_id:
                 raise ValueError("project_id is required")
             
+            # Convert project_id to UUID if it's a string
+            if isinstance(project_id, str):
+                try:
+                    project_id = uuid.UUID(project_id)
+                except ValueError:
+                    raise ValueError(f"Invalid project_id format: {project_id}")
+            
             # Ensure project exists
             with self._get_session() as session:
                 project = session.query(Project).filter(Project.id == project_id).first()
                 if not project:
                     raise ValueError(f"Project {project_id} does not exist")
             
-            doc_id = deterministic_uuid(f"{ddl}{project_id}") + "-ddl"
             embedding = self.generate_embedding(ddl)
             
             if not embedding:
                 return None
             
-            metadata = {"project_id": project_id}
+            metadata = {"project_id": str(project_id)}
             
             with self._get_session() as session:
                 ddl_stmt = DDLStatement(
-                    id=doc_id,
                     project_id=project_id,
                     ddl=ddl,
                     embedding=embedding,
-                    metadata=json.dumps(metadata),
+                    ddl_metadata=json.dumps(metadata),
                     created_at=int(pd.Timestamp.now().timestamp())
                 )
                 session.add(ddl_stmt)
                 session.commit()
-            
-            return doc_id
+                return str(ddl_stmt.id)
             
         except Exception as e:
             print(f"Error adding DDL: {str(e)}")
@@ -223,33 +255,37 @@ class PostgresDB_VectorStore():
             if not project_id:
                 raise ValueError("project_id is required")
             
+            # Convert project_id to UUID if it's a string
+            if isinstance(project_id, str):
+                try:
+                    project_id = uuid.UUID(project_id)
+                except ValueError:
+                    raise ValueError(f"Invalid project_id format: {project_id}")
+            
             # Ensure project exists
             with self._get_session() as session:
                 project = session.query(Project).filter(Project.id == project_id).first()
                 if not project:
                     raise ValueError(f"Project {project_id} does not exist")
             
-            doc_id = deterministic_uuid(f"{documentation}{project_id}") + "-doc"
             embedding = self.generate_embedding(documentation)
             
             if not embedding:
                 return None
             
-            metadata = {"project_id": project_id}
+            metadata = {"project_id": str(project_id)}
             
             with self._get_session() as session:
                 doc_item = DocumentationItem(
-                    id=doc_id,
                     project_id=project_id,
                     documentation=documentation,
                     embedding=embedding,
-                    metadata=json.dumps(metadata),
+                    documentation_metadata=json.dumps(metadata),
                     created_at=int(pd.Timestamp.now().timestamp())
                 )
                 session.add(doc_item)
                 session.commit()
-            
-            return doc_id
+                return str(doc_item.id)
             
         except Exception as e:
             print(f"Error adding documentation: {str(e)}")
@@ -260,6 +296,13 @@ class PostgresDB_VectorStore():
         try:
             with self._get_session() as session:
                 df = pd.DataFrame()
+                
+                # Convert project_id to UUID if it's a string
+                if project_id and isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
                 
                 # Get SQL data
                 sql_query = session.query(SQLQuery)
@@ -320,11 +363,11 @@ class PostgresDB_VectorStore():
         try:
             with self._get_session() as session:
                 # Try to find in each table
-                result = session.query(SQLQuery).filter(SQLQuery.id == id).delete()
+                result = session.query(SQLQuery).filter(SQLQuery.uuid == id).delete()
                 if result == 0:
-                    result = session.query(DDLStatement).filter(DDLStatement.id == id).delete()
+                    result = session.query(DDLStatement).filter(DDLStatement.uuid == id).delete()
                 if result == 0:
-                    result = session.query(DocumentationItem).filter(DocumentationItem.id == id).delete()
+                    result = session.query(DocumentationItem).filter(DocumentationItem.uuid == id).delete()
                 
                 session.commit()
                 return result > 0
@@ -345,20 +388,23 @@ class PostgresDB_VectorStore():
         """
         try:
             with self._get_session() as session:
+                # Convert project_id to integer if it's a string
+                project_id_int = int(project_id) if project_id and isinstance(project_id, str) else project_id
+                
                 if collection_name == "sql":
                     query = session.query(SQLQuery)
                     if project_id:
-                        query = query.filter(SQLQuery.project_id == project_id)
+                        query = query.filter(SQLQuery.project_id == project_id_int)
                     result = query.delete()
                 elif collection_name == "ddl":
                     query = session.query(DDLStatement)
                     if project_id:
-                        query = query.filter(DDLStatement.project_id == project_id)
+                        query = query.filter(DDLStatement.project_id == project_id_int)
                     result = query.delete()
                 elif collection_name == "documentation":
                     query = session.query(DocumentationItem)
                     if project_id:
-                        query = query.filter(DocumentationItem.project_id == project_id)
+                        query = query.filter(DocumentationItem.project_id == project_id_int)
                     result = query.delete()
                 else:
                     return False
@@ -384,6 +430,13 @@ class PostgresDB_VectorStore():
         """Get similar SQL queries using cosine similarity"""
         try:
             with self._get_session() as session:
+                # Convert project_id to UUID if it's a string
+                if isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
+                
                 queries = session.query(SQLQuery).filter(
                     SQLQuery.project_id == project_id
                 ).all()
@@ -414,6 +467,13 @@ class PostgresDB_VectorStore():
         """Get similar DDL statements using cosine similarity"""
         try:
             with self._get_session() as session:
+                # Convert project_id to UUID if it's a string
+                if isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
+                
                 statements = session.query(DDLStatement).filter(
                     DDLStatement.project_id == project_id
                 ).all()
@@ -440,6 +500,13 @@ class PostgresDB_VectorStore():
         """Get similar documentation using cosine similarity"""
         try:
             with self._get_session() as session:
+                # Convert project_id to UUID if it's a string
+                if isinstance(project_id, str):
+                    try:
+                        project_id = uuid.UUID(project_id)
+                    except ValueError:
+                        raise ValueError(f"Invalid project_id format: {project_id}")
+                
                 docs = session.query(DocumentationItem).filter(
                     DocumentationItem.project_id == project_id
                 ).all()
@@ -500,117 +567,106 @@ class PostgresDB_VectorStore():
             return []
     
     def get_related_documentation(self, question: str, project_id: str = None, **kwargs) -> list:
-        """
-        Get related documentation for a given question.
-        Includes error handling and validation.
-        """
+        """Get related documentation for a given question"""
         try:
-            if not project_id:
-                raise ValueError("project_id is required")
-            
             query_embedding = self.generate_embedding(question)
             if not query_embedding:
                 return []
             
             return self._get_similar_documentation(query_embedding, project_id, self.n_results_documentation)
-            
         except Exception as e:
             print(f"Error retrieving documentation: {str(e)}")
             return []
-    
-    def migrate_embeddings(self, new_embedding_function=None):
-        """
-        Migrate existing collections to use a new embedding function.
-        This will regenerate all embeddings with the new function.
-        
-        Args:
-            new_embedding_function: The new embedding function to use. If None, uses the current one.
-        
-        Returns:
-            bool: True if migration was successful, False otherwise
-        """
-        if new_embedding_function:
-            self.embedding_function = new_embedding_function
-        
-        try:
-            print("🔄 Starting embedding function migration...")
-            
-            with self._get_session() as session:
-                # Get all documents from all tables
-                sql_queries = session.query(SQLQuery).all()
-                ddl_statements = session.query(DDLStatement).all()
-                documentation_items = session.query(DocumentationItem).all()
-                
-                all_documents = []
-                all_documents.extend([(q, "sql") for q in sql_queries])
-                all_documents.extend([(d, "ddl") for d in ddl_statements])
-                all_documents.extend([(doc, "doc") for doc in documentation_items])
-                
-                if not all_documents:
-                    print("ℹ️  No documents to migrate")
-                    return True
-                
-                print(f"📋 Found {len(all_documents)} documents to migrate")
-                
-                migrated_count = 0
-                for doc, doc_type in all_documents:
-                    try:
-                        if doc_type == "sql":
-                            text_to_embed = f"{doc.question} {doc.sql}"
-                        elif doc_type == "ddl":
-                            text_to_embed = doc.ddl
-                        else:  # doc
-                            text_to_embed = doc.documentation
-                        
-                        # Generate new embedding
-                        new_embedding = self.generate_embedding(text_to_embed)
-                        if new_embedding:
-                            doc.embedding = new_embedding
-                            migrated_count += 1
-                    except Exception as e:
-                        print(f"⚠️  Failed to migrate document {doc.id}: {e}")
-                
-                session.commit()
-                print(f"✅ Migration completed! Migrated {migrated_count} documents")
-                return True
-                
-        except Exception as e:
-            print(f"❌ Migration failed: {e}")
-            return False
-    
-    def get_collection_stats(self, project_id: str = None) -> Dict[str, Any]:
-        """Get statistics about all collections, optionally filtered by project"""
+
+    def get_all_documentation(self, project_id: str = None, **kwargs) -> list:
+        """Get all documentation items for a project"""
         try:
             with self._get_session() as session:
-                stats = {}
+                query = session.query(DocumentationItem)
+                if project_id is not None:
+                    # Convert project_id to UUID if it's a string
+                    if isinstance(project_id, str):
+                        try:
+                            project_id = uuid.UUID(project_id)
+                        except ValueError:
+                            raise ValueError(f"Invalid project_id format: {project_id}")
+                    query = query.filter(DocumentationItem.project_id == project_id)
                 
-                # SQL queries stats
-                sql_query = session.query(SQLQuery)
-                if project_id:
-                    sql_query = sql_query.filter(SQLQuery.project_id == project_id)
-                stats["sql"] = sql_query.count()
-                
-                # DDL statements stats
-                ddl_query = session.query(DDLStatement)
-                if project_id:
-                    ddl_query = ddl_query.filter(DDLStatement.project_id == project_id)
-                stats["ddl"] = ddl_query.count()
-                
-                # Documentation stats
-                doc_query = session.query(DocumentationItem)
-                if project_id:
-                    doc_query = doc_query.filter(DocumentationItem.project_id == project_id)
-                stats["documentation"] = doc_query.count()
-                
-                return stats
-                
+                items = query.all()
+                result = []
+                for item in items:
+                    result.append({
+                        "id": str(item.id),
+                        "documentation": item.documentation,
+                        "metadata": {
+                            "project_id": str(item.project_id),
+                            "created_at": datetime.fromtimestamp(item.created_at).isoformat() if item.created_at else None
+                        }
+                    })
+                return result
         except Exception as e:
-            print(f"Error getting collection stats: {e}")
-            return {}
-    
-    def close(self):
-        """Close database connections"""
+            print(f"Error retrieving all documentation: {str(e)}")
+            return []
+
+    def get_all_question_sql(self, project_id: str = None, **kwargs) -> list:
+        """Get all question-SQL pairs for a project"""
         try:
-            self.engine.dispose()
+            with self._get_session() as session:
+                query = session.query(SQLQuery)
+                if project_id is not None:
+                    # Convert project_id to UUID if it's a string
+                    if isinstance(project_id, str):
+                        try:
+                            project_id = uuid.UUID(project_id)
+                        except ValueError:
+                            raise ValueError(f"Invalid project_id format: {project_id}")
+                    query = query.filter(SQLQuery.project_id == project_id)
+                
+                items = query.all()
+                result = []
+                for item in items:
+                    result.append({
+                        "id": str(item.id),
+                        "question": item.question,
+                        "sql": item.sql,
+                        "metadata": {
+                            "project_id": str(item.project_id),
+                            "created_at": datetime.fromtimestamp(item.created_at).isoformat() if item.created_at else None
+                        }
+                    })
+                return result
         except Exception as e:
-            print(f"Error closing database connections: {e}") 
+            print(f"Error retrieving all question-SQL pairs: {str(e)}")
+            return []
+
+    def get_all_ddl(self, project_id: str = None, **kwargs) -> list:
+        """Get all DDL statements for a project"""
+        try:
+            with self._get_session() as session:
+                query = session.query(DDLStatement)
+                if project_id is not None:
+                    # Convert project_id to UUID if it's a string
+                    if isinstance(project_id, str):
+                        try:
+                            project_id = uuid.UUID(project_id)
+                        except ValueError:
+                            raise ValueError(f"Invalid project_id format: {project_id}")
+                    query = query.filter(DDLStatement.project_id == project_id)
+                
+                items = query.all()
+                result = []
+                for item in items:
+                    result.append({
+                        "id": str(item.id),
+                        "ddl": item.ddl,
+                        "metadata": {
+                            "project_id": str(item.project_id),
+                            "created_at": datetime.fromtimestamp(item.created_at).isoformat() if item.created_at else None
+                        }
+                    })
+                return result
+        except Exception as e:
+            print(f"Error retrieving all DDL statements: {str(e)}")
+            return []
+    
+   

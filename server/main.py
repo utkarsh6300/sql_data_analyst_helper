@@ -1,22 +1,24 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from db.database import create_all_tables
 
 # Load environment variables
 load_dotenv()
 
-from db.config import DATABASE_TYPE
-from db.database import create_all_tables
-from services.vector_service import VectorService
+from db.config import DATABASE_TYPE, VECTOR_DB_TYPE
 
 # Import routes
 from routes import projects, chats, project_chats
 
-# Initialize database tables
-create_all_tables()
+# Run database migration and create all tables
+try:
+    from db.migrate import migrate_database
+    migrate_database()
+except Exception as e:
+    print(f"⚠️ Warning: Database migration failed: {e}")
 
-# Initialize vector store
-VectorService.initialize()
+create_all_tables()
 
 app = FastAPI(title="Analyst Helper API", version="1.0.0")
 
@@ -45,5 +47,5 @@ def health_check():
     return {
         "status": "healthy", 
         "database": DATABASE_TYPE.upper(),
-        "vector_database": VectorService.get_vector_db_type().upper()
+        "vector_database": VECTOR_DB_TYPE.upper()
     }

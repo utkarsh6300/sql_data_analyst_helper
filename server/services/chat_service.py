@@ -106,93 +106,113 @@ class ChatService:
             raise HTTPException(status_code=400, detail="No queries in chat history")
         
         last_query = history[-1]
-        last_query["is_correct"] = feedback.is_correct
-        if feedback.is_correct:
-            chat.feedback_enabled = False  # Disable feedback for this chat after correction
-        if feedback.is_correct and feedback.add_to_samples:
-            project = chat.project
-            current_samples = project.sample_queries or {}
-            current_samples[last_query["text"]] = last_query["sql"]
-            project.sample_queries = current_samples
-            # Also add to vector store for future similarity searches
-            print(f"💾 Adding corrected Q&A pair to vector store for project {project.id}...")
-            print(f"   Question: '{last_query['text'][:50]}...'")
-            print(f"   SQL: '{last_query['sql'][:50]}...'")
-            sql_id = VectorService.add_question_sql(last_query["text"], last_query["sql"], project_id=str(project.id))
-            if sql_id:
-                print(f"   ✅ Added to vector store with ID: {sql_id}")
-            else:
-                print(f"   ❌ Failed to add to vector store")
-            
-        chat.query_history = history
-        db.commit()
         
+        # Only regenerate SQL if feedback indicates incorrect query
         if not feedback.is_correct:
-            # Get similar content from vector store for regeneration
-            project = chat.project
-            query_text = last_query["text"]
-            
-            print(f"🔄 Regenerating SQL for incorrect query: '{query_text}' in project {project.id}")
-            
-            print(f"📚 Fetching related documentation for regeneration...")
-            similar_docs = VectorService.get_related_documentation(query_text, project_id=str(project.id))
-            print(f"📄 Found {len(similar_docs) if similar_docs else 0} related documentation items for regeneration")
-            
-            print(f"🏗️  Fetching related DDL for regeneration...")
-            similar_ddl = VectorService.get_related_ddl(query_text, project_id=str(project.id))
-            print(f"📋 Found {len(similar_ddl) if similar_ddl else 0} related DDL items for regeneration")
-            
-            print(f"❓ Fetching similar question-SQL pairs for regeneration...")
-            similar_queries = VectorService.get_similar_question_sql(query_text, project_id=str(project.id))
-            print(f"🔗 Found {len(similar_queries) if similar_queries else 0} similar question-SQL pairs for regeneration")
-            
-            # Extract sample queries from similar results
-            additional_samples = {}
-            for result in similar_queries:
-                if isinstance(result, dict) and "question" in result and "sql" in result:
-                    additional_samples[result["question"]] = result["sql"]
-            
-            # Combine project samples with similar samples
-            all_samples = {**(project.sample_queries or {}), **additional_samples}
-            
-            # Convert list responses to strings for SQL generator
-            ddl_text = similar_ddl[0] if similar_ddl and len(similar_ddl) > 0 else ""
-            docs_text = similar_docs[0] if similar_docs and len(similar_docs) > 0 else ""
-            
-            print(f"📋 DDL text length for regeneration: {len(ddl_text)} characters")
-            print(f"📚 Documentation text length for regeneration: {len(docs_text)} characters")
-            print(f"❓ Sample queries count for regeneration: {len(all_samples)}")
-            print(f"🔄 Query history length for regeneration: {len(history)}")
-            
-            # Regenerate SQL using all available context
-            new_sql = regenerate_sql_query(
-                query_text=query_text,
-                schema=ddl_text,
-                documentation=docs_text,
-                sample_queries=all_samples,
-                query_history=history
-            )
-            
-            history.append({
-                "text": last_query["text"],
-                "sql": new_sql,
-                "timestamp": datetime.utcnow().isoformat()
-            })
-            chat.query_history = history
-            db.commit()
-            return {"sql": new_sql, "chat_id": chat_id, "feedback_enabled": chat.feedback_enabled}
+            return ChatService._regenerate_sql(db, chat, last_query["text"])
         
         return {"status": "success", "feedback_enabled": chat.feedback_enabled}
 
     @staticmethod
+    def _regenerate_sql(db: Session, chat: models.Chat, query_text: str):
+        """Internal method to regenerate SQL for an incorrect query"""
+        project = chat.project
+        
+        print(f"🔄 Regenerating SQL for incorrect query: '{query_text}' in project {project.id}")
+        
+        print(f"📚 Fetching related documentation for regeneration...")
+        similar_docs = VectorService.get_related_documentation(query_text, project_id=str(project.id))
+        print(f"📄 Found {len(similar_docs) if similar_docs else 0} related documentation items for regeneration")
+        
+        print(f"🏗️  Fetching related DDL for regeneration...")
+        similar_ddl = VectorService.get_related_ddl(query_text, project_id=str(project.id))
+        print(f"📋 Found {len(similar_ddl) if similar_ddl else 0} related DDL items for regeneration")
+        
+        print(f"❓ Fetching similar question-SQL pairs for regeneration...")
+        similar_queries = VectorService.get_similar_question_sql(query_text, project_id=str(project.id))
+        print(f"🔗 Found {len(similar_queries) if similar_queries else 0} similar question-SQL pairs for regeneration")
+        
+        # Extract sample queries from similar results
+        additional_samples = {}
+        for result in similar_queries:
+            if isinstance(result, dict) and "question" in result and "sql" in result:
+                additional_samples[result["question"]] = result["sql"]
+        
+        # Combine project samples with similar samples
+        all_samples = {**(project.sample_queries or {}), **additional_samples}
+        
+        # Convert list responses to strings for SQL generator
+        ddl_text = similar_ddl[0] if similar_ddl and len(similar_ddl) > 0 else ""
+        docs_text = similar_docs[0] if similar_docs and len(similar_docs) > 0 else ""
+        
+        print(f"📋 DDL text length for regeneration: {len(ddl_text)} characters")
+        print(f"📚 Documentation text length for regeneration: {len(docs_text)} characters")
+        print(f"❓ Sample queries count for regeneration: {len(all_samples)}")
+        print(f"🔄 Query history length for regeneration: {len(chat.query_history)}")
+        
+        # Regenerate SQL using all available context
+        new_sql = regenerate_sql_query(
+            query_text=query_text,
+            schema=ddl_text,
+            documentation=docs_text,
+            sample_queries=all_samples,
+            query_history=chat.query_history
+        )
+        
+        # Update chat history with new SQL
+        history = chat.query_history
+        history.append({
+            "text": query_text,
+            "sql": new_sql,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        chat.query_history = history
+        db.commit()
+        
+        return {"sql": new_sql, "chat_id": chat.id, "feedback_enabled": chat.feedback_enabled}
+
+    @staticmethod
     def update_chat(db: Session, chat_id: int, update: dict):
-        """Update chat settings"""
+        """Update chat settings and handle feedback-related operations"""
         chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
         if chat is None:
             raise HTTPException(status_code=404, detail="Chat not found")
         
+        # Update feedback_enabled if provided
         if "feedback_enabled" in update:
             chat.feedback_enabled = update["feedback_enabled"]
+        
+        # Update query history if provided
+        if "query_history" in update:
+            chat.query_history = update["query_history"]
+        
+        # Handle updating feedback status for last query
+        if "last_query_feedback" in update:
+            history = chat.query_history
+            if history:
+                last_query = history[-1]
+                last_query["is_correct"] = update["last_query_feedback"]
+                chat.query_history = history
+        
+        # Handle adding to samples if provided
+        if "add_to_samples" in update and update["add_to_samples"]:
+            history = chat.query_history
+            if history:
+                last_query = history[-1]
+                project = chat.project
+                current_samples = project.sample_queries or {}
+                current_samples[last_query["text"]] = last_query["sql"]
+                project.sample_queries = current_samples
+                
+                # Also add to vector store for future similarity searches
+                print(f"💾 Adding corrected Q&A pair to vector store for project {project.id}...")
+                print(f"   Question: '{last_query['text'][:50]}...'")
+                print(f"   SQL: '{last_query['sql'][:50]}...'")
+                sql_id = VectorService.add_question_sql(last_query["text"], last_query["sql"], project_id=str(project.id))
+                if sql_id:
+                    print(f"   ✅ Added to vector store with ID: {sql_id}")
+                else:
+                    print(f"   ❌ Failed to add to vector store")
             
         db.commit()
         db.refresh(chat)

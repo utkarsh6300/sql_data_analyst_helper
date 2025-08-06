@@ -10,7 +10,7 @@ class VectorStoreFactory:
         Create a vector store instance based on the specified type
         
         Args:
-            vector_db_type: Type of vector database ('chroma' or 'postgres')
+            vector_db_type: Type of vector database ('postgres')
             config: Additional configuration for the vector store
             
         Returns:
@@ -22,10 +22,7 @@ class VectorStoreFactory:
         if config is None:
             config = VECTOR_DB_CONFIG.get(vector_db_type, {})
         
-        if vector_db_type == 'chroma':
-            from vectorDB.chroma import ChromaDB_VectorStore
-            return ChromaDB_VectorStore(config=config)
-        elif vector_db_type == 'postgres':
+        if vector_db_type == 'postgres':
             from vectorDB.postgres import PostgresDB_VectorStore
             return PostgresDB_VectorStore(config=config)
         else:
@@ -34,4 +31,4 @@ class VectorStoreFactory:
     @staticmethod
     def get_supported_types():
         """Get list of supported vector database types"""
-        return ['chroma', 'postgres'] 
+        return ['postgres'] 
