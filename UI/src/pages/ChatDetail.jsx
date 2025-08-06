@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
-  Paper,
   TextField,
   Button,
   Typography,
@@ -24,7 +23,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
-import AddCircleIcon from '@mui/icons-material/AddCircle';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
@@ -39,11 +37,9 @@ function ChatDetail({ onError }) {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [addingSample, setAddingSample] = useState(null);
   const [feedbackEnabled, setFeedbackEnabled] = useState(null);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [sampleAdded, setSampleAdded] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -150,6 +146,12 @@ function ChatDetail({ onError }) {
           correct: null,
         };
         setMessages(prev => [...prev, newMessage]);
+
+        // Reset feedback_enabled to null so user can provide feedback on the new SQL
+        if (response.feedback_enabled !== undefined) {
+          setFeedbackEnabled(response.feedback_enabled);
+        }
+
         scrollToBottom();
       }
     } catch (err) {
@@ -159,33 +161,6 @@ function ChatDetail({ onError }) {
           ? { ...msg, correct: null }
           : msg
       ));
-    }
-  };
-
-  const handleAddSample = async (messageId) => {
-    const message = messages.find(m => m.id === messageId);
-    if (!message || addingSample === messageId) return;
-
-    setAddingSample(messageId);
-    try {
-      // Update chat to add the last query to samples
-      const response = await chatApi.updateChat(chatId, {
-        last_query_feedback: true,
-        add_to_samples: true
-      });
-
-      // Update feedback_enabled based on the response
-      if (response.feedback_enabled !== undefined) {
-        setFeedbackEnabled(response.feedback_enabled);
-      }
-
-      // Show success notification
-      setSampleAdded(true);
-      setTimeout(() => setSampleAdded(false), 2000);
-    } catch (err) {
-      onError(err);
-    } finally {
-      setAddingSample(null);
     }
   };
 
@@ -204,6 +179,16 @@ function ChatDetail({ onError }) {
     const sqlMessages = messages.filter(msg => msg.sql);
     const currentMessage = messages[messageIndex];
     return currentMessage.sql && sqlMessages[sqlMessages.length - 1].id === currentMessage.id;
+  };
+
+  // Helper function to check if feedback should be shown for this message
+  const shouldShowFeedback = (message) => {
+    // Show feedback if this is the last SQL message and no feedback has been given yet
+    const sqlMessages = messages.filter(msg => msg.sql);
+    const isLastSql = sqlMessages.length > 0 && sqlMessages[sqlMessages.length - 1].id === message.id;
+
+    // Show feedback if this is the last SQL message and feedback_enabled is null (no feedback given yet)
+    return isLastSql && feedbackEnabled === null;
   };
 
   if (loading) {
@@ -372,8 +357,8 @@ function ChatDetail({ onError }) {
                                 </IconButton>
                               </Tooltip>
 
-                              {/* Show feedback buttons based on feedback_enabled state */}
-                              {feedbackEnabled === null && message.correct === null && (
+                              {/* Show feedback buttons if feedback should be shown for this message */}
+                              {shouldShowFeedback(message) && (
                                 <>
                                   <Tooltip title="Correct SQL">
                                     <IconButton
@@ -403,25 +388,17 @@ function ChatDetail({ onError }) {
                                   </Tooltip>
                                 </>
                               )}
-
-                              {/* Show add sample button when feedback is enabled and query is marked correct */}
-                              {feedbackEnabled === true && message.correct === true && (
-                                <Tooltip title="Add as sample query">
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => handleAddSample(message.id)}
-                                    disabled={addingSample === message.id}
-                                    sx={{
-                                      backgroundColor: 'rgba(25,118,210,0.1)',
-                                      '&:hover': { backgroundColor: 'rgba(25,118,210,0.2)' }
-                                    }}
-                                  >
-                                    {addingSample === message.id ? (
-                                      <CircularProgress size={16} />
-                                    ) : (
-                                      <AddCircleIcon fontSize="small" />
-                                    )}
+                              {feedbackEnabled === true && (
+                                <Tooltip title="Correct">
+                                  <IconButton size="small" color="success" disabled>
+                                    <CheckCircleIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                              {feedbackEnabled === false && (
+                                <Tooltip title="Incorrect">
+                                  <IconButton size="small" color="error" disabled>
+                                    <CancelIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                               )}
@@ -512,8 +489,8 @@ function ChatDetail({ onError }) {
           {feedbackEnabled === null
             ? "Use the feedback buttons on the SQL query to mark it as correct or incorrect."
             : feedbackEnabled === true
-              ? "Mark the query as correct to add it as a sample query."
-              : "Feedback completed. No further actions available."
+              ? "Previous SQL was marked as correct. No further actions available."
+              : "Previous SQL was marked as incorrect and regenerated. Provide feedback on the new SQL if needed."
           }
         </Alert>
       )}
@@ -529,13 +506,6 @@ function ChatDetail({ onError }) {
       <Fade in={copied}>
         <Alert severity="success" sx={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1000 }}>
           SQL copied to clipboard!
-        </Alert>
-      </Fade>
-
-      {/* Sample Added Confirmation */}
-      <Fade in={sampleAdded}>
-        <Alert severity="success" sx={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1000 }}>
-          Sample query added successfully!
         </Alert>
       </Fade>
     </Box>
