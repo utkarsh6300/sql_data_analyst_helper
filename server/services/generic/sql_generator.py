@@ -1,8 +1,10 @@
-import openai
+# import openai
 from typing import List, Dict, Any
 import os
 from dotenv import load_dotenv
 import logging
+
+from services.generic.llm import bedrock
 
 load_dotenv()
 
@@ -10,7 +12,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def generate_sql_query(
     query_text: str,
@@ -58,17 +60,26 @@ def generate_sql_query(
         raise Exception("Query text cannot be empty")
 
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": "You are a SQL expert. Generate accurate SQL queries based on natural language inputs and the provided database schema and context. Return only the SQL query without any explanations or markdown formatting."},
-                {"role": "user", "content": prompt}
-            ],
+        # response = openai.chat.completions.create(
+        #     model="gpt-4-turbo-preview",
+        #     messages=[
+        #         {"role": "system", "content": "You are a SQL expert. Generate accurate SQL queries based on natural language inputs and the provided database schema and context. Return only the SQL query without any explanations or markdown formatting."},
+        #         {"role": "user", "content": prompt}
+        #     ],
+        #     temperature=0.3,
+        #     max_tokens=500
+        # )
+        # generated_sql = response.choices[0].message.content.strip()
+
+        system_content = "You are a SQL expert. Generate accurate SQL queries based on natural language inputs and the provided database schema and context. Return only the SQL query without any explanations or markdown formatting."
+        response = bedrock.generate_text(
+            model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
+            prompt=prompt,
+            system_prompts=[{"text": system_content}],
             temperature=0.3,
-            max_tokens=500
         )
         
-        generated_sql = response.choices[0].message.content.strip()
+        generated_sql = response.strip()
         logger.info(f"✅ Generated SQL: {generated_sql}")
         logger.info(f"📊 Tokens used: {response.usage.total_tokens if response.usage else 'Unknown'}")
         
@@ -127,17 +138,25 @@ def regenerate_sql_query(
         raise Exception("Query text cannot be empty")
 
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": "You are a SQL expert. Generate a corrected SQL query, avoiding the mistakes in previous attempts. Return only the SQL query without any explanations or markdown formatting."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=500
-        )
+        # response = openai.chat.completions.create(
+        #     model="gpt-4-turbo-preview",
+        #     messages=[
+        #         {"role": "system", "content": "You are a SQL expert. Generate a corrected SQL query, avoiding the mistakes in previous attempts. Return only the SQL query without any explanations or markdown formatting."},
+        #         {"role": "user", "content": prompt}
+        #     ],
+        #     temperature=0.3,
+        #     max_tokens=500
+        # )
         
-        generated_sql = response.choices[0].message.content.strip()
+        # generated_sql = response.choices[0].message.content.strip()
+        system_content = "You are a SQL expert. Generate a corrected SQL query, avoiding the mistakes in previous attempts. Return only the SQL query without any explanations or markdown formatting."
+        response = bedrock.generate_text(
+            model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
+            prompt=prompt,
+            system_prompts=[{"text": system_content}],
+            temperature=0.3,
+        )
+        generated_sql = response.strip()
         logger.info(f"✅ Regenerated SQL: {generated_sql}")
         logger.info(f"📊 Tokens used: {response.usage.total_tokens if response.usage else 'Unknown'}")
         

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg14  # PostgreSQL 14 with pgvector
+    container_name: analyst_helper_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: utkarsh
+      POSTGRES_DB: analyst_helper
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

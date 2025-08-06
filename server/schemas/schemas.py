@@ -4,7 +4,7 @@ from datetime import datetime
 
 class ProjectBase(BaseModel):
     name: str
-    schema: str
+    db_schema: str
     documentation: Optional[str] = None
     sample_queries: Optional[Dict[str, str]] = None
 
@@ -17,7 +17,7 @@ class Project(ProjectBase):
     chatsCount: int = 0
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ChatBase(BaseModel):
     project_id: int
@@ -32,7 +32,7 @@ class Chat(ChatBase):
     created_at: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class QueryRequest(BaseModel):
     text: str
@@ -45,7 +45,7 @@ class DocumentationRequest(BaseModel):
     documentation: str
 
 class SchemaRequest(BaseModel):
-    schema: str
+    db_schema: str
 
 class SampleQueriesRequest(BaseModel):
     sample_queries: Dict[str, str]

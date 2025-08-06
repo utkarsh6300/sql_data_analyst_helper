@@ -6,22 +6,26 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Disable ChromaDB telemetry completely
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
 import chromadb
 import pandas as pd
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
+# default_ef = embedding_function
 
 from vectorDB.utils import deterministic_uuid
 
-# Use OpenAI embeddings for better consistency with the LLM
-openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    model_name="text-embedding-ada-002"
-)
+# # Use OpenAI embeddings for better consistency with the LLM
+# openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+#     api_key=os.getenv("OPENAI_API_KEY"),
+#     model_name="text-embedding-ada-002"
+# )
 
 # Fallback to default if OpenAI key is not available
 try:
-    default_ef = openai_ef
+    default_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 except Exception:
     default_ef = embedding_functions.DefaultEmbeddingFunction()
 

@@ -1,8 +1,8 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, Text
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship
 from datetime import datetime
+from .base import Base
 
-Base = declarative_base()
 
 class Project(Base):
     __tablename__ = "projects"
@@ -15,6 +15,10 @@ class Project(Base):
     created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
     
     chats = relationship("Chat", back_populates="project")
+    # Relationships
+    sql_queries = relationship("SQLQuery", back_populates="project", cascade="all, delete-orphan")
+    ddl_statements = relationship("DDLStatement", back_populates="project", cascade="all, delete-orphan")
+    documentation_items = relationship("DocumentationItem", back_populates="project", cascade="all, delete-orphan")
 
 class Chat(Base):
     __tablename__ = "chats"
