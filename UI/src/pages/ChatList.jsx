@@ -94,6 +94,16 @@ function ChatList({ onError }) {
           </Typography>
         </Box>
         <Button
+          variant="outlined"
+          onClick={() => navigate(`/project/${projectId}`)}
+          sx={{
+            minWidth: 'fit-content',
+            px: 3
+          }}
+        >
+          Project Details
+        </Button>
+        <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={handleNewChat}
