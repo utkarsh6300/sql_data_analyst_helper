@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sql-compiler-plugin"
+version = "0.1.0"
+description = "A plug-and-play SQL security compiler for Text-to-SQL systems"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["sqlglot==26.33.0"]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2", "pytest-cov==7.1.0"]
+
+[tool.setuptools.packages.find]
+include = ["sql_compiler*"]
+
+[tool.setuptools.package-data]
+sql_compiler = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# --strict-markers makes a mark that is not registered below an error rather
+# than a silent no-op, so a misspelled pytestmark cannot drop tests out of the
+# suite. (It does not validate -m expressions: `-m unitt` still just selects
+# nothing.) --strict-config does the same for unknown keys in this section.
+addopts = "--strict-markers --strict-config"
+markers = [
+    "unit: exercises one module or pass in isolation; no full pipeline",
+    "integration: drives SqlCompiler end to end through every pass",
+    "security: a bypass that must never regress",
+]
+
+[tool.coverage.run]
+source = ["sql_compiler"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@abc.abstractmethod",
+    "@abstractmethod",
+]
