@@ -175,6 +175,51 @@ lowercases everything would let a policy for one authorize the other.
 
 **Closed by:** normalization is delegated to the dialect and preserves quoting.
 
+### 11. Table-valued functions smuggling a relation into FROM
+
+```sql
+SELECT * FROM generate_series(1, 10)
+SELECT * FROM jsonb_each('{}'::jsonb)
+SELECT o.id FROM orders o JOIN generate_series(1, 10) AS g(n) ON o.id = g.n
+```
+
+sqlglot represents a set-returning function used directly as a relation the
+same way it represents a real table (`exp.Table`), except `this` is a
+function call rather than a plain identifier. Code that assumes every
+`exp.Table` names a catalogued table therefore breaks on this shape.
+
+**Closed by:** the scope-source loop in `resolve.py` catches the specific
+failure this produces (`TableRef.from_table_node` raising
+`ConfigurationError`) and reports it as `NAME_RESOLUTION_FAILED` rather than
+letting the exception escape uncaught — which it previously did, with a
+message that embedded a fragment of the query.
+
+### 12. NATURAL JOIN's invisible column predicate
+
+```sql
+SELECT e.id FROM employees e NATURAL JOIN audit_log a
+```
+
+`NATURAL JOIN` implicitly joins on every column the two sides share by name.
+sqlglot's `qualify()` does not expand that into a real `ON` condition — it
+stays a bare `method='NATURAL'` marker with no `Column` nodes at all. If
+`employees.salary` is denied but `audit_log` also has a column named
+`salary`, Postgres executes `... ON e.salary = a.salary` at runtime — a read
+of the denied column that never produces anything for this package's
+column-authorization pass to see. Filtering the permitted side
+(`WHERE a.salary = <guess>`) and observing which rows survive the natural
+join is a full oracle for extracting the denied column's exact values,
+one comparison at a time (the same class of attack as bypass #9, "Reads
+that are not projections" — just through a join path instead of a
+predicate).
+
+**Closed by:** `NATURAL JOIN` is rejected unconditionally, wherever it
+appears in the query (top level, inside a CTE, inside a derived table, inside
+any branch of a set operation) — not reconstructed or verified, since there
+is no way to do that safely from inside this package. The explicit
+equivalents, `JOIN ... ON` and `JOIN ... USING (...)`, are unaffected and
+already correctly authorize their columns.
+
 ## Parser differential
 
 A validator whose parser disagrees with the database's parser is a known
@@ -190,6 +235,67 @@ correctness problem rather than a bypass.
 Residual risk worth knowing about: Postgres `search_path` resolution of
 unqualified names (mitigated by always emitting a schema), and dialect-specific
 string escapes.
+
+## Fail-closed by construction, not just by test coverage
+
+Every pass is fallible against input nobody has specifically tested —
+sqlglot adds syntax across releases, and dialects keep surprising shapes.
+`compiler.py` wraps the resolve and authorize passes in a catch-all: any
+exception neither pass was written to expect becomes an `INTERNAL_ERROR`
+violation (action `NOT_REPAIRABLE`) instead of propagating out of
+`SqlCompiler.compile()`. The exception's message is never included in the
+violation — only its class name — because an internal error's message can
+itself embed a fragment of the query, as the table-valued-function bug above
+did before it was fixed.
+
+This is a safety net, not a substitute for fixing root causes: an
+`INTERNAL_ERROR` means a specific construct needs its own clean violation the
+way table-valued functions now have one, and should be tracked as a bug when
+it appears.
+
+## Deny-by-default over-reach: structural syntax mistaken for functions
+
+The bypass catalogue above is all under-restriction — things that were
+wrongly *allowed*. This one runs the other way: things that were wrongly
+*denied*, which matters just as much for a compiler meant to sit in front of
+a real workload rather than a security demo.
+
+`_collect_functions` in `resolve.py` walks every `exp.Func` node and denies
+it unless allow-listed. sqlglot's class hierarchy models several pieces of
+ordinary, unavoidable SQL syntax as `exp.Func` subclasses purely for parsing
+convenience:
+
+```sql
+SELECT id FROM orders WHERE EXISTS (SELECT 1 FROM customers)   -- exp.Exists
+SELECT id FROM orders WHERE amount > 1 AND amount < 100         -- exp.And
+SELECT CASE WHEN amount > 1 THEN 1 ELSE 0 END FROM orders        -- exp.Case
+```
+
+`exp.Exists` is, structurally, both an `exp.Func` and an
+`exp.SubqueryPredicate`; `exp.And`/`exp.Or`/`exp.Xor` subclass
+`exp.Connector`; `exp.Case`/`exp.If` have no distinguishing base beyond
+`Func` itself. None of them is a callable a policy should have to
+allow-list — a query cannot avoid `AND`, and any correlated subquery or
+semi-join needs `EXISTS`. Before this was caught, **every query using
+`EXISTS`, `NOT EXISTS`, `CASE WHEN`, or a bare `AND`/`OR` in a predicate was
+rejected outright** as an unauthorized function call, regardless of whether
+anything it actually read was unauthorized. That is close to "rejects every
+non-trivial query."
+
+**Why it went undetected:** the one existing test exercising `EXISTS`
+(`test_denied_column_in_a_correlated_subquery_is_caught`) asserted only
+`violations[0].column`, never the full violation set — so a spurious
+`FUNCTION_NOT_ALLOWED` riding alongside the expected `COLUMN_ACCESS_DENIED`
+passed silently. Asserting the complete `codes(result)` set, not just the
+first violation, is now the pattern to follow when a test's whole point is
+that exactly one thing is wrong.
+
+**Closed by:** nodes matching `_NON_FUNCTION_SYNTAX_TYPES`
+(`Connector`, `SubqueryPredicate`, `Case`, `If`, resolved by name the same
+version-safe way `readonly.py`'s deny list is) are excluded from function
+collection entirely, so they are invisible to the allow-list rather than
+failing it. A genuine function call — including a dangerous one like
+`pg_read_file` — is unaffected; only structural syntax is excluded.
 
 ## What this does **not** defend against
 

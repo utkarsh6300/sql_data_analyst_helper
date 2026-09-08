@@ -33,6 +33,7 @@ class ViolationCode(str, Enum):
     EMPTY_CATALOG = "EMPTY_CATALOG"
     UNKNOWN_TABLE = "UNKNOWN_TABLE"
     NAME_RESOLUTION_FAILED = "NAME_RESOLUTION_FAILED"
+    NATURAL_JOIN_NOT_SUPPORTED = "NATURAL_JOIN_NOT_SUPPORTED"
 
     # --- Stage 4: authorization ---------------------------------------------
     TABLE_ACCESS_DENIED = "TABLE_ACCESS_DENIED"
@@ -41,6 +42,9 @@ class ViolationCode(str, Enum):
 
     # --- Stage 5: code generation -------------------------------------------
     GENERATION_FAILED = "GENERATION_FAILED"
+
+    # --- Cross-cutting: unanticipated failures ------------------------------
+    INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
 class RepairAction(str, Enum):

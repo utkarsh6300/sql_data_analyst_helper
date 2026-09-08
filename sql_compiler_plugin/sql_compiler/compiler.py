@@ -158,8 +158,13 @@ class SqlCompiler:
         if violations:
             return rejected(violations)
 
-        # Pass 3: resolve every name against the catalog.
-        resolved, violations = resolve(statement, active_catalog)
+        # Pass 3: resolve every name against the catalog. Anything the pass
+        # did not anticipate must fail closed rather than reach the caller as
+        # a raw exception -- see _internal_error_violation.
+        try:
+            resolved, violations = resolve(statement, active_catalog)
+        except Exception as exc:
+            return rejected([_internal_error_violation(exc)])
         if violations or resolved is None:
             return rejected(violations)
 
@@ -169,7 +174,10 @@ class SqlCompiler:
         )
 
         # Pass 4: authorize, collecting every violation for the repair loop.
-        violations = authorize(resolved, active_policy)
+        try:
+            violations = authorize(resolved, active_policy)
+        except Exception as exc:
+            return rejected([_internal_error_violation(exc)])
         if violations:
             result = rejected(violations)
             # Audit still wants to know what was attempted.
@@ -234,6 +242,22 @@ class SqlCompiler:
                 f"policy provider returned {type(resolved).__name__}, expected Policy"
             )
         return resolved
+
+
+def _internal_error_violation(exc: Exception) -> Violation:
+    """A fail-closed violation for a bug the compiler did not anticipate.
+
+    Only the exception's class name is kept. Its message is never included:
+    a resolver or authorizer bug can embed a fragment of the offending SQL in
+    its message (as a malformed FROM-clause expression once did), and
+    surfacing that would turn an internal bug into a disclosure channel.
+    """
+    return Violation(
+        code=ViolationCode.INTERNAL_ERROR,
+        message="The query could not be validated due to an internal error.",
+        action=RepairAction.NOT_REPAIRABLE,
+        details={"error_type": type(exc).__name__},
+    )
 
 
 def compile_sql(

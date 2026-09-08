@@ -21,7 +21,7 @@ the catalog, the query is rejected rather than passed along unresolved.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Type
 
 from sqlglot import exp
 from sqlglot.errors import OptimizeError, SqlglotError
@@ -29,7 +29,7 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import traverse_scope
 
 from ..catalog import Catalog
-from ..errors import RepairAction, Violation, ViolationCode, first_line
+from ..errors import ConfigurationError, RepairAction, Violation, ViolationCode, first_line
 from ..ir import ColumnRef, FunctionRef, ResolvedQuery
 from ..names import TableRef, normalize_identifier
 
@@ -37,6 +37,37 @@ from ..names import TableRef, normalize_identifier
 #: avoids picking up an operand when a function renders as an operator (for
 #: example Postgres rendering CONCAT as ``a || b``).
 _FUNCTION_CALL = re.compile(r'^\s*"?([A-Za-z_][A-Za-z0-9_]*)"?\s*\(')
+
+
+def _resolve_types(names: Tuple[str, ...]) -> Tuple[Type[exp.Expression], ...]:
+    """Resolve class names against ``exp``, skipping any this version lacks.
+
+    Mirrors ``passes/readonly.py``'s own resolver: sqlglot renames and adds
+    expression classes between releases, so looking them up by name keeps
+    this working across versions instead of failing to import on an
+    unrelated upgrade.
+    """
+    resolved = []
+    for name in names:
+        node_type = getattr(exp, name, None)
+        if isinstance(node_type, type) and issubclass(node_type, exp.Expression):
+            resolved.append(node_type)
+    return tuple(resolved)
+
+
+#: Node types that are structural SQL syntax rather than callable functions,
+#: even though sqlglot models them via the ``Func`` base class for parsing
+#: convenience:
+#:
+#: * ``Connector`` (``AND``/``OR``/``XOR``) -- logical connectives.
+#: * ``SubqueryPredicate`` (``EXISTS``) -- a boolean subquery operator.
+#: * ``Case``, ``If`` -- conditional expressions.
+#:
+#: Every one of these is unavoidable, ordinary SQL syntax that a correct
+#: query cannot omit. Deny-by-default is meant for callable functions whose
+#: presence or absence is a meaningful capability decision -- treating these
+#: the same way would reject nearly every non-trivial query outright.
+_NON_FUNCTION_SYNTAX_TYPES = _resolve_types(("Connector", "SubqueryPredicate", "Case", "If"))
 
 
 def resolve(
@@ -58,6 +89,15 @@ def resolve(
                 action=RepairAction.NOT_REPAIRABLE,
             )
         ]
+
+    # NATURAL JOIN's join condition is an implicit equality over every
+    # same-named column on both sides. sqlglot's qualify() does not expand it
+    # into real Column nodes -- it stays a bare `method=NATURAL` marker -- so
+    # a shared column denied on one side is compared at execution time
+    # without ever being seen by authorization. Reject unconditionally rather
+    # than trying to reconstruct the predicate ourselves.
+    if _find_natural_join(statement) is not None:
+        return None, [_natural_join_violation()]
 
     # Check table existence before qualification. sqlglot reports a missing
     # table as an unresolvable *column*, which is an actively misleading thing
@@ -131,11 +171,20 @@ def _extract(
         source_refs: Dict[str, TableRef] = {}
         for name, source in scope.sources.items():
             if isinstance(source, exp.Table):
-                ref = TableRef.from_table_node(
-                    source,
-                    dialect=catalog.dialect,
-                    default_schema=catalog.default_schema,
-                )
+                try:
+                    ref = TableRef.from_table_node(
+                        source,
+                        dialect=catalog.dialect,
+                        default_schema=catalog.default_schema,
+                    )
+                except ConfigurationError:
+                    # `source` is an exp.Table that does not name a real
+                    # table -- sqlglot represents an unmodelled relation
+                    # (a table-valued function such as generate_series() or
+                    # jsonb_each(), used directly in FROM/JOIN) this way.
+                    # There is no catalog entry to authorize against, so
+                    # fail closed instead of guessing.
+                    return None, [_unsupported_table_expression_violation()]
                 source_refs[name] = ref
                 resolved.base_tables.add(ref)
 
@@ -224,11 +273,24 @@ def _collect_functions(expression: exp.Expression, dialect: str) -> List[Functio
     spelled several ways: ``DATE_TRUNC`` parses to a ``TimestampTrunc`` node
     whose ``sql_name()`` is ``TIMESTAMP_TRUNC`` but which renders back as
     ``DATE_TRUNC``. An allow-list entry may match any of them.
+
+    Nodes matching :data:`_NON_FUNCTION_SYNTAX_TYPES` are skipped entirely.
+    ``exp.Exists`` (``EXISTS``/``NOT EXISTS``), ``exp.Connector``
+    (``AND``/``OR``/``XOR``) and ``exp.Case``/``exp.If`` (``CASE WHEN``) are
+    all, structurally, subclasses of ``exp.Func`` in sqlglot's hierarchy --
+    a parsing convenience, not a sign that they are callable functions a
+    policy should have to allow-list. Treating them as functions would
+    deny-by-default reject nearly every non-trivial query: there is no
+    query with a correlated subquery, a boolean predicate, or a conditional
+    expression that does not use at least one of them.
     """
     functions: List[FunctionRef] = []
     seen: Set[frozenset] = set()
 
     for node in expression.find_all(exp.Func):
+        if isinstance(node, _NON_FUNCTION_SYNTAX_TYPES):
+            continue
+
         candidates: Set[str] = set()
 
         if isinstance(node, exp.Anonymous):
@@ -264,6 +326,36 @@ def _collect_functions(expression: exp.Expression, dialect: str) -> List[Functio
         )
 
     return functions
+
+
+def _find_natural_join(statement: exp.Expression) -> Optional[exp.Join]:
+    for join in statement.find_all(exp.Join):
+        if join.args.get("method") == "NATURAL":
+            return join
+    return None
+
+
+def _natural_join_violation() -> Violation:
+    return Violation(
+        code=ViolationCode.NATURAL_JOIN_NOT_SUPPORTED,
+        message=(
+            "NATURAL JOIN is not supported because its join columns cannot "
+            "be verified against the access policy. Use an explicit "
+            "JOIN ... ON or JOIN ... USING (...) instead."
+        ),
+        action=RepairAction.REWRITE_QUERY,
+    )
+
+
+def _unsupported_table_expression_violation() -> Violation:
+    return Violation(
+        code=ViolationCode.NAME_RESOLUTION_FAILED,
+        message=(
+            "The query's FROM clause uses a table expression that is not a "
+            "table, view, CTE or subquery, so it could not be resolved."
+        ),
+        action=RepairAction.REWRITE_QUERY,
+    )
 
 
 def _unresolved_column_violation() -> Violation:

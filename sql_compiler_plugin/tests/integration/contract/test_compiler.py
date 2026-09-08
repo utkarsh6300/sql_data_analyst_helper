@@ -10,6 +10,7 @@ from sql_compiler import (
     CompilationRejected,
     ConfigurationError,
     Policy,
+    RepairAction,
     SqlCompiler,
     StaticPolicyProvider,
     ViolationCode,
@@ -100,6 +101,36 @@ def test_empty_catalog_is_reported_not_silently_permissive(policy):
     result = compiler.compile("SELECT amount FROM orders", policy=policy)
     assert not result.ok
     assert result.violations[0].code == ViolationCode.EMPTY_CATALOG
+
+
+def test_an_unexpected_resolve_failure_fails_closed_not_crashed(compiler, policy, monkeypatch):
+    # A bug in a pass must never reach the caller as a raw exception -- it
+    # must come back as an ordinary rejected CompileResult, the same way a
+    # malformed FROM-clause expression once escaped uncaught.
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("SELECT ssn FROM secret_table -- simulated internal bug")
+
+    monkeypatch.setattr("sql_compiler.compiler.resolve", boom)
+    result = compiler.compile("SELECT amount FROM orders", policy=policy)
+    assert not result.ok
+    assert result.violations[0].code == ViolationCode.INTERNAL_ERROR
+    assert result.violations[0].action == RepairAction.NOT_REPAIRABLE
+    assert result.violations[0].details == {"error_type": "RuntimeError"}
+    # The exception message must never reach the caller: it can carry a
+    # fragment of the query, or worse.
+    assert "ssn" not in str(result.to_dict())
+    assert "secret_table" not in str(result.to_dict())
+
+
+def test_an_unexpected_authorize_failure_fails_closed_not_crashed(compiler, policy, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("SELECT ssn FROM secret_table -- simulated internal bug")
+
+    monkeypatch.setattr("sql_compiler.compiler.authorize", boom)
+    result = compiler.compile("SELECT amount FROM orders", policy=policy)
+    assert not result.ok
+    assert result.violations[0].code == ViolationCode.INTERNAL_ERROR
+    assert "ssn" not in str(result.to_dict())
 
 
 # -- policy resolution -------------------------------------------------------

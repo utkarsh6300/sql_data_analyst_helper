@@ -190,26 +190,43 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 tests/
 ├── conftest.py                        shared catalog + policy fixtures
 ├── unit/                              no full pipeline; -m unit
-│   ├── test_names.py                  identifier normalization, TableRef
-│   ├── test_errors.py                 violation codes and payload shape
-│   ├── test_catalog.py                from_dict, from_ddl, lookup
-│   ├── test_policy.py                 grants, denies, serialization, providers
-│   ├── test_schema_view.py            permission-filtered schema
-│   ├── test_compile_result.py         the result object and repair prompt
+│   ├── core/                          one file per top-level module
+│   │   ├── test_names.py              identifier normalization, TableRef
+│   │   ├── test_errors.py             violation codes and payload shape
+│   │   ├── test_catalog.py            from_dict, from_ddl, lookup
+│   │   ├── test_policy.py             grants, denies, serialization, providers
+│   │   ├── test_schema_view.py        permission-filtered schema
+│   │   └── test_compile_result.py     the result object and repair prompt
 │   └── passes/                        one file per pass, in pipeline order
 │       ├── test_parse.py              pass 1: exactly one statement
 │       ├── test_readonly.py           pass 2: read-only enforcement
 │       ├── test_resolve.py            pass 3: name resolution
 │       └── test_authorize.py          pass 4: access checks
 └── integration/                       drives SqlCompiler; -m integration
-    ├── test_compiler.py               the public contract
-    ├── test_adversarial.py            the bypasses; also -m security
-    ├── test_accepted_queries.py       legitimate queries that must compile
-    └── test_schema_prompt_contract.py filter and compiler must agree
+    ├── contract/                      the public contract, end to end
+    │   ├── test_compiler.py           CompileResult, error surfaces, audit
+    │   ├── test_accepted_queries.py   legitimate queries that must compile
+    │   └── test_schema_prompt_contract.py  filter and compiler must agree
+    └── security/                      also -m security
+        ├── test_adversarial.py        the bypasses this package exists to close
+        └── statement_sweep/           every non-SELECT PostgreSQL command,
+            │                          grouped by leading keyword/verb
+            ├── test_alter.py          all ALTER * variants
+            ├── test_create.py         all CREATE * variants
+            ├── test_drop.py           all DROP * variants
+            ├── test_dml.py            INSERT/UPDATE/DELETE/MERGE/COPY/TRUNCATE/
+            │                          SELECT INTO/VALUES; also the one positive
+            │                          control proving a real SELECT still passes
+            ├── test_transaction_control.py  ABORT/BEGIN/COMMIT/ROLLBACK/SAVEPOINT/...
+            ├── test_dcl.py            GRANT/REVOKE/roles/SECURITY LABEL/COMMENT
+            ├── test_session.py        SET/RESET/SHOW/DISCARD
+            ├── test_cursors.py        PREPARE/EXECUTE/DECLARE/FETCH/MOVE/CLOSE
+            └── test_misc_admin.py     everything else: LISTEN/NOTIFY, VACUUM/
+                                       ANALYZE/REINDEX/CLUSTER, CALL/DO
 ```
 
-`tests/integration/test_adversarial.py` holds the bypasses this package exists
-to close. Add to it before adding features.
+`tests/integration/security/test_adversarial.py` holds the bypasses this
+package exists to close. Add to it before adding features.
 
 Two rules keep the split honest. A test in `unit/` must not construct a
 `SqlCompiler` — if a case needs the whole pipeline to express, it belongs in

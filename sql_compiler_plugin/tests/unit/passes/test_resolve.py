@@ -96,6 +96,50 @@ def test_a_quoted_name_is_not_folded_into_a_known_table(catalog):
     assert codes(violations) == [ViolationCode.UNKNOWN_TABLE]
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM generate_series(1, 10)",
+        "SELECT * FROM generate_series(1, 10) AS t(n)",
+        "SELECT * FROM jsonb_each('{}'::jsonb)",
+        "SELECT * FROM json_to_recordset('[]') AS x(a int, b text)",
+        "SELECT * FROM regexp_split_to_table('a,b', ',')",
+        "SELECT o.id FROM orders o JOIN generate_series(1, 10) AS g(n) ON o.id = g.n",
+    ],
+)
+def test_a_table_valued_function_in_from_fails_closed_not_crashes(sql, catalog):
+    # sqlglot represents an unmodelled relation (a set-returning function used
+    # directly in FROM/JOIN) as an exp.Table whose `this` is a function call,
+    # not a plain identifier. TableRef.from_table_node cannot name that, and
+    # used to raise ConfigurationError uncaught all the way out of resolve().
+    resolved, violations = run(sql, catalog)
+    assert resolved is None
+    assert codes(violations) == [ViolationCode.NAME_RESOLUTION_FAILED]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT e.id FROM employees e NATURAL JOIN customers c",
+        "SELECT e.id FROM employees e NATURAL LEFT JOIN customers c",
+        "SELECT e.id FROM employees e NATURAL FULL JOIN customers c",
+        "WITH t AS (SELECT e.id FROM employees e NATURAL JOIN customers c) SELECT id FROM t",
+        "SELECT x.id FROM (SELECT e.id FROM employees e NATURAL JOIN customers c) x",
+        "SELECT id FROM orders UNION ALL SELECT e.id FROM employees e NATURAL JOIN customers c",
+    ],
+)
+def test_a_natural_join_fails_closed_wherever_it_appears(sql, catalog):
+    # NATURAL JOIN's implicit equality over every same-named column on both
+    # sides is never expanded into real Column nodes by qualify() -- it stays
+    # a bare `method=NATURAL` marker -- so a denied column shared by name
+    # with a permitted table's column would be compared at execution time
+    # without this pass ever seeing it. There is no way to safely verify that
+    # predicate here, so the construct is rejected outright, unconditionally.
+    resolved, violations = run(sql, catalog)
+    assert resolved is None
+    assert codes(violations) == [ViolationCode.NATURAL_JOIN_NOT_SUPPORTED]
+
+
 # -- star expansion ----------------------------------------------------------
 
 
@@ -346,6 +390,46 @@ def test_a_function_in_a_where_clause_is_collected(catalog):
         "SELECT id FROM customers WHERE UPPER(name) = 'X'", catalog
     )
     assert "UPPER" in function_names(resolved)
+
+
+def test_exists_is_not_collected_as_a_function(catalog):
+    # exp.Exists is structurally both an exp.Func and an
+    # exp.SubqueryPredicate -- sqlglot models EXISTS(...) this way for
+    # parsing convenience, not because it is a callable function. Collecting
+    # it would deny-by-default reject every correlated-subquery or
+    # semi-join query.
+    resolved, violations = run(
+        "SELECT id FROM orders WHERE EXISTS (SELECT 1 FROM customers)", catalog
+    )
+    assert violations == []
+    assert "EXISTS" not in function_names(resolved)
+
+
+def test_and_or_are_not_collected_as_functions(catalog):
+    resolved, violations = run(
+        "SELECT id FROM orders WHERE amount > 1 AND amount < 100 OR amount = 0",
+        catalog,
+    )
+    assert violations == []
+    assert not {"AND", "OR"} & function_names(resolved)
+
+
+def test_case_is_not_collected_as_a_function(catalog):
+    resolved, violations = run(
+        "SELECT CASE WHEN amount > 1 THEN 1 ELSE 0 END FROM orders", catalog
+    )
+    assert violations == []
+    assert not {"CASE", "IF"} & function_names(resolved)
+
+
+def test_a_genuine_function_is_still_collected_alongside_the_exclusion(catalog):
+    # Excluding structural syntax must not widen to exclude anything else.
+    resolved, _ = run(
+        "SELECT id FROM orders WHERE EXISTS (SELECT 1 FROM customers WHERE UPPER(name) = 'X')",
+        catalog,
+    )
+    assert "UPPER" in function_names(resolved)
+    assert "EXISTS" not in function_names(resolved)
 
 
 # -- purity ------------------------------------------------------------------

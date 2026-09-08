@@ -381,17 +381,13 @@ filter cannot silently drift away from what the compiler enforces.
 
 ## Tests
 
-```
-tests/test_adversarial.py   the bypasses this package exists to close  ← start here
-tests/test_readonly.py      parsing and read-only enforcement
-tests/test_compiler.py      the public contract
-tests/test_catalog.py       schema construction and normalization
-tests/test_policy.py        grants, denies, serialization
-tests/test_schema_view.py   filtered schema
-```
+Full layout and rationale live in the README's [Test layout](../README.md#test-layout)
+section rather than duplicated here, so it can't drift out of sync again.
+Start at `tests/integration/security/test_adversarial.py` — the bypasses this
+package exists to close.
 
 ```bash
-.venv/bin/python -m pytest -q      # 121 passed
+.venv/bin/python -m pytest -q
 ```
 
 Add to `test_adversarial.py` before adding features.
