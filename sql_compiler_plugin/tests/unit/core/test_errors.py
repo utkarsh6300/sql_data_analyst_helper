@@ -198,3 +198,29 @@ def test_rejection_to_dict_is_json_serializable():
             {"code": "PARSE_ERROR", "message": "a", "action": "REWRITE_QUERY"}
         ]
     }
+
+
+# -- first_line ---------------------------------------------------------
+
+
+from sql_compiler.errors import first_line
+
+
+def test_first_line_takes_only_the_first_line():
+    assert first_line("first\nsecond\nthird") == "first"
+
+
+def test_first_line_strips_surrounding_whitespace():
+    assert first_line("  padded message  ") == "padded message"
+
+
+def test_first_line_truncates_at_200_characters():
+    assert first_line("x" * 300) == "x" * 200
+
+
+def test_first_line_of_empty_string_is_empty_not_a_crash():
+    assert first_line("") == ""
+
+
+def test_first_line_of_whitespace_only_is_empty_not_a_crash():
+    assert first_line("   \n\t  ") == ""

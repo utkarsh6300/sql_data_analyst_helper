@@ -58,8 +58,10 @@ def test_an_empty_name_currently_normalizes_to_an_empty_string():
 
 
 def test_unknown_dialect_is_reported():
-    # A typo in the dialect must not silently fall back to "no normalization".
-    with pytest.raises(Exception):
+    # A typo in the dialect must not silently fall back to "no normalization",
+    # and must not leak sqlglot's own exception type either -- every other
+    # host-misconfiguration path in this package raises ConfigurationError.
+    with pytest.raises(ConfigurationError, match="not_a_real_dialect"):
         normalize_identifier("orders", "not_a_real_dialect")
 
 
@@ -110,6 +112,14 @@ def test_three_part_name_is_a_configuration_error():
     # mean authorizing a name whose first part was never checked.
     with pytest.raises(ConfigurationError, match="three-part"):
         TableRef.parse("db.public.orders", dialect="postgres", default_schema="public")
+
+
+def test_malformed_dotted_name_is_a_configuration_error():
+    # A trailing dot with no table name makes sqlglot's own parser raise a
+    # raw ParseError; that must not escape past this package's own
+    # ConfigurationError contract.
+    with pytest.raises(ConfigurationError, match="does not name a table"):
+        TableRef.parse("public.", dialect="postgres", default_schema="public")
 
 
 # -- TableRef.from_table_node ------------------------------------------------

@@ -148,13 +148,22 @@ class SqlCompiler:
                 ok=False, violations=violations, subject=subject_label
             )
 
-        # Pass 1: exactly one parseable statement.
-        statement, violations = parse_single_statement(sql, active_catalog.dialect)
+        # Pass 1: exactly one parseable statement. Anything the pass did not
+        # anticipate (e.g. sqlglot's recursion limit on pathological input)
+        # must fail closed rather than crash the host -- see
+        # _internal_error_violation.
+        try:
+            statement, violations = parse_single_statement(sql, active_catalog.dialect)
+        except Exception as exc:
+            return rejected([_internal_error_violation(exc)])
         if violations or statement is None:
             return rejected(violations)
 
         # Pass 2: prove it is a pure read before doing any further work.
-        violations = check_read_only(statement)
+        try:
+            violations = check_read_only(statement)
+        except Exception as exc:
+            return rejected([_internal_error_violation(exc)])
         if violations:
             return rejected(violations)
 
@@ -190,14 +199,14 @@ class SqlCompiler:
             safe_sql = resolved.expression.sql(
                 dialect=active_catalog.dialect, pretty=self.pretty
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             return rejected(
                 [
                     Violation(
                         code=ViolationCode.GENERATION_FAILED,
                         message="The validated query could not be regenerated.",
                         action=RepairAction.NOT_REPAIRABLE,
-                        details={"generator_message": str(exc)[:200]},
+                        details={"error_type": type(exc).__name__},
                     )
                 ]
             )

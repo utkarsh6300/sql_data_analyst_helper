@@ -448,3 +448,42 @@ def test_resolution_is_idempotent(catalog):
     twice, violations = run(sql, catalog)
     assert violations == []
     assert twice.expression.sql(dialect=catalog.dialect) == sql
+
+
+# -- unexpanded stars --------------------------------------------------------
+
+
+def test_a_star_that_cannot_be_expanded_fails_closed():
+    # SELECT alias.* against a LATERAL derived table has no catalog entry to
+    # expand the star against -- expand_stars leaves it in place, and this
+    # must be denied rather than let an unchecked column through.
+    lateral_catalog = Catalog.from_dict(
+        {
+            "public": {
+                "accounts": {"id": "INT"},
+                "purchases": {"id": "INT", "account_id": "INT", "created_at": "TIMESTAMP"},
+            }
+        }
+    )
+    sql = (
+        "SELECT accounts.id, last_purchase.* FROM accounts "
+        "INNER JOIN LATERAL ("
+        "  SELECT * FROM purchases WHERE account_id = accounts.id "
+        "  ORDER BY created_at DESC LIMIT 1"
+        ") AS last_purchase ON true"
+    )
+    resolved, violations = run(sql, lateral_catalog)
+    assert resolved is None
+    assert codes(violations) == [ViolationCode.NAME_RESOLUTION_FAILED]
+
+
+# -- functions inside window clauses -----------------------------------------
+
+
+def test_a_function_call_inside_a_window_clause_is_collected(catalog):
+    resolved, violations = run(
+        "SELECT id, evil_window_func() OVER (ORDER BY amount) FROM orders", catalog
+    )
+    assert violations == []
+    assert resolved is not None
+    assert any("EVIL_WINDOW_FUNC" in f.candidates for f in resolved.functions)

@@ -166,6 +166,15 @@ def test_from_dict_omitting_columns_grants_all_of_them():
     assert policy.table_policy(ORDERS).allowed_columns is ALL_COLUMNS
 
 
+def test_bare_star_string_as_a_whole_table_grant_means_all_columns():
+    # {"table": "*"} is a shorthand distinct from {"table": {"columns": "*"}}
+    # -- both must resolve to ALL_COLUMNS; only a bare string that is *not*
+    # "*" (see test_bare_string_column_grant_is_rejected) is rejected.
+    policy = Policy.from_dict({"tables": {"public.orders": "*"}})
+    table_policy = policy.table_policy(TableRef("public", "orders"))
+    assert table_policy.allowed_columns is ALL_COLUMNS
+
+
 def test_from_dict_normalizes_identifier_case():
     policy = Policy.from_dict({"tables": {"PUBLIC.Orders": ["ID"]}})
     assert policy.permits_table(ORDERS)

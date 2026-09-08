@@ -133,4 +133,5 @@ def first_line(message: str) -> str:
     back, so every pass truncates them the same way rather than each inventing
     its own limit.
     """
-    return message.strip().splitlines()[0][:200]
+    lines = message.strip().splitlines()
+    return lines[0][:200] if lines else ""

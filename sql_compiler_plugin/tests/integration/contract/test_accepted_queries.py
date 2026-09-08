@@ -75,6 +75,43 @@ ACCEPTED = [
     "select ID from ORDERS",
     "SELECT\n  id,\n  amount\nFROM orders\n",
     "SELECT id FROM orders;",
+    # recursive CTEs
+    (
+        "WITH RECURSIVE nums AS ("
+        "  SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5"
+        ") SELECT n FROM nums"
+    ),
+    # grouping extensions
+    "SELECT id, amount FROM orders GROUP BY GROUPING SETS ((id), (amount), ())",
+    "SELECT customer_id, SUM(amount) FROM orders GROUP BY ROLLUP (customer_id)",
+    "SELECT customer_id, SUM(amount) FROM orders GROUP BY CUBE (customer_id)",
+    "SELECT customer_id, SUM(amount) FROM orders GROUP BY 1",
+    # DISTINCT ON and FILTER
+    (
+        "SELECT DISTINCT ON (customer_id) customer_id, amount FROM orders "
+        "ORDER BY customer_id, amount DESC"
+    ),
+    "SELECT SUM(amount) FILTER (WHERE amount > 100) FROM orders",
+    # LATERAL and correlated subqueries
+    (
+        "SELECT o.id FROM orders o LEFT JOIN LATERAL ("
+        "  SELECT amount FROM orders o2 "
+        "  WHERE o2.customer_id = o.customer_id LIMIT 1"
+        ") x ON true"
+    ),
+    (
+        "SELECT c.name FROM customers c "
+        "WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)"
+    ),
+    # self-join
+    "SELECT a.id FROM customers a JOIN customers b ON a.region = b.region AND a.id <> b.id",
+    # qualified star over a fully-granted table
+    "SELECT c.* FROM customers c",
+    # CASE WHEN
+    "SELECT id, CASE WHEN amount > 100 THEN 'big' ELSE 'small' END FROM orders",
+    # set operations beyond UNION
+    "SELECT id FROM orders INTERSECT SELECT id FROM customers",
+    "SELECT id FROM orders EXCEPT SELECT id FROM customers",
 ]
 
 

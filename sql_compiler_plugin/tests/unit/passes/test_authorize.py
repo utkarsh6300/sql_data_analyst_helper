@@ -274,6 +274,31 @@ def test_a_denied_function_does_not_suppress_column_checks(grants):
 # -- disclosure --------------------------------------------------------------
 
 
+def test_a_function_ref_with_no_candidate_names_is_never_permitted(grants):
+    # permits_function(set()) is vacuously False -- an empty candidate set
+    # must deny, not pass by accident of "nothing to check against".
+    query = resolved(functions=())
+    query.functions.append(FunctionRef(display="", candidates=frozenset()))
+    violations = authorize(query, grants)
+    assert ViolationCode.FUNCTION_NOT_ALLOWED in codes(violations)
+
+
+def test_table_column_and_function_violations_all_compose_in_one_query(grants):
+    # A query that denies a table, a column, and a function at once must
+    # report all three kinds, not let one kind's check short-circuit another.
+    query = resolved(
+        tables=(SECRET_ORDERS,),
+        columns=[(EMPLOYEES, "salary")],
+        functions=("pg_sleep",),
+    )
+    violations = authorize(query, grants)
+    assert codes(violations) == [
+        ViolationCode.TABLE_ACCESS_DENIED,
+        ViolationCode.COLUMN_ACCESS_DENIED,
+        ViolationCode.FUNCTION_NOT_ALLOWED,
+    ]
+
+
 def test_violations_name_only_what_the_query_already_referenced(grants):
     # The message may name the denied object the model asked for, but must not
     # enumerate the rest of the schema.

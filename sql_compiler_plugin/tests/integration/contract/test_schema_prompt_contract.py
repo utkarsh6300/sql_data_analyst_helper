@@ -68,3 +68,35 @@ def test_an_empty_grant_advertises_nothing_and_compiles_nothing(catalog, compile
     empty = Policy.from_dict({})
     assert render_schema_prompt(catalog, empty) == ""
     assert not compiler.compile("SELECT id FROM orders", policy=empty).ok
+
+
+def test_a_join_across_two_advertised_tables_compiles(catalog, policy, compiler):
+    # Single-table checks can't catch the filter and the compiler disagreeing
+    # about a qualified name or an alias -- only a join can.
+    visible = visible_schema(catalog, policy)
+    order_cols = ", ".join(f"o.{c}" for c in visible["public.orders"])
+    customer_cols = ", ".join(f"c.{c}" for c in visible["public.customers"])
+    sql = (
+        f"SELECT {order_cols}, {customer_cols} FROM orders o "
+        "JOIN customers c ON c.id = o.customer_id"
+    )
+    result = compiler.compile(sql, policy=policy)
+    assert result.ok, result.violations
+
+
+def test_row_filter_never_reaches_the_rendered_prompt():
+    from sql_compiler import TablePolicy, TableRef
+
+    filtered_catalog = Catalog.from_dict({"orders": ["id", "amount"]})
+    filtered_policy = Policy(
+        tables={
+            TableRef("public", "orders"): TablePolicy(
+                table=TableRef("public", "orders"),
+                allowed_columns=frozenset({"id", "amount"}),
+                row_filter="tenant_id = current_setting('app.tenant')::int",
+            )
+        }
+    )
+    prompt = render_schema_prompt(filtered_catalog, filtered_policy)
+    assert "tenant_id" not in prompt
+    assert "current_setting" not in prompt

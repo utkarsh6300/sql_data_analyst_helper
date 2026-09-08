@@ -62,6 +62,16 @@ def test_table_with_no_columns_is_rejected():
         Catalog.from_dict({"public.orders": []})
 
 
+def test_an_empty_nested_schema_value_is_a_configuration_error_not_a_silent_no_op():
+    # {"public": {}} is ambiguous -- "an empty schema" or "a table named
+    # public with no columns" -- and _is_nested_schema treats an empty dict
+    # as not-nested, so it resolves to the second reading. Either way it
+    # must fail closed with ConfigurationError, never silently produce an
+    # empty, table-less catalog.
+    with pytest.raises(ConfigurationError, match="no columns"):
+        Catalog.from_dict({"public": {}})
+
+
 def test_three_part_name_is_rejected():
     with pytest.raises(ConfigurationError, match="three-part"):
         Catalog.from_dict({"db.public.orders": ["id"]})
@@ -212,6 +222,16 @@ def test_from_ddl_skips_table_level_constraints():
         ["CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b), UNIQUE (b));"]
     )
     assert catalog.columns(TableRef("public", "t")) == ["a", "b"]
+
+
+def test_from_ddl_drops_a_table_with_only_constraints_and_no_columns():
+    # Distinct from test_from_ddl_skips_table_level_constraints (which mixes
+    # constraints with real columns): a CREATE TABLE with *only* table-level
+    # constraints has nothing to harvest, so the whole table is absent from
+    # the catalog -- not registered with zero columns. Combined with
+    # deny-by-default (an absent table is UNKNOWN_TABLE), this fails safe.
+    catalog = Catalog.from_ddl(["CREATE TABLE t (PRIMARY KEY (a, b));"])
+    assert catalog.tables == []
 
 
 def test_from_ddl_keeps_column_types_with_their_precision():

@@ -100,6 +100,19 @@ def test_rendered_prompt_covers_every_visible_table(catalog, policy):
         assert f"CREATE TABLE {qualified} (" in prompt
 
 
+def test_untyped_columns_render_as_the_unknown_placeholder():
+    # Catalog.from_dict accepts a bare column-name sequence with no types;
+    # the DDL rendering must still produce something -- and something that
+    # re-parses -- rather than blank or malformed column definitions.
+    untyped_catalog = Catalog.from_dict({"orders": ["id", "amount"]})
+    untyped_policy = Policy.from_dict({"tables": {"orders": ["id", "amount"]}})
+    prompt = render_schema_prompt(untyped_catalog, untyped_policy)
+    assert "id UNKNOWN" in prompt
+    assert "amount UNKNOWN" in prompt
+    rebuilt = Catalog.from_ddl([prompt])
+    assert rebuilt.columns(untyped_catalog.ref("orders")) == ["id", "amount"]
+
+
 def test_rendered_prompt_is_parseable_ddl(catalog, policy):
     # It is fed to a model as DDL, so it should be real DDL -- and it is the
     # same text Catalog.from_ddl consumes.

@@ -10,6 +10,7 @@ from sql_compiler import (
     CompilationRejected,
     ConfigurationError,
     Policy,
+    PolicyProvider,
     RepairAction,
     SqlCompiler,
     StaticPolicyProvider,
@@ -133,6 +134,55 @@ def test_an_unexpected_authorize_failure_fails_closed_not_crashed(compiler, poli
     assert "ssn" not in str(result.to_dict())
 
 
+def test_pathologically_nested_input_is_rejected_not_crashed(compiler, policy):
+    # A parenthesis bomb can blow sqlglot's recursion limit inside Pass 1
+    # (parsing) before there is even a tree for Pass 2 to walk. This must
+    # come back as an ordinary rejected CompileResult, the same way an
+    # unanticipated failure in resolve()/authorize() already does -- not
+    # propagate as a raw RecursionError.
+    deeply_nested = "SELECT " + "(" * 3000 + "1" + ")" * 3000
+    result = compiler.compile(deeply_nested, policy=policy)
+    assert not result.ok
+    assert result.sql is None
+    assert result.violations[0].code == ViolationCode.INTERNAL_ERROR
+
+
+def test_generation_failure_fails_closed_without_leaking_the_exception_text(
+    compiler, policy, monkeypatch
+):
+    # Pass 5 (regenerating the validated tree back into SQL) is defensive
+    # code and not expected to fail in practice, but if it ever does, the
+    # exception text must be scrubbed exactly like _internal_error_violation
+    # already scrubs it for Passes 3/4 -- not embedded raw the way
+    # GENERATION_FAILED used to.
+    from sql_compiler.ir import ResolvedQuery
+
+    class ExplodingExpression:
+        def sql(self, *_args, **_kwargs):
+            raise RuntimeError(
+                "SELECT ssn FROM secret_table -- simulated generator bug"
+            )
+
+    def fake_resolve(_statement, _catalog):
+        return (
+            ResolvedQuery(
+                expression=ExplodingExpression(),
+                base_tables=set(),
+                column_refs=[],
+                functions=[],
+            ),
+            [],
+        )
+
+    monkeypatch.setattr("sql_compiler.compiler.resolve", fake_resolve)
+    result = compiler.compile("SELECT amount FROM orders", policy=policy)
+    assert not result.ok
+    assert result.violations[0].code == ViolationCode.GENERATION_FAILED
+    assert result.violations[0].details == {"error_type": "RuntimeError"}
+    assert "ssn" not in str(result.to_dict())
+    assert "secret_table" not in str(result.to_dict())
+
+
 # -- policy resolution -------------------------------------------------------
 
 
@@ -154,6 +204,37 @@ def test_explicit_policy_wins_over_the_provider(catalog, policy):
         "SELECT amount FROM orders", policy=empty, subject="analyst-1"
     )
     assert not result.ok
+
+
+class _ReturnsWrongType(PolicyProvider):
+    """A deliberately buggy provider, for testing the type guard."""
+
+    def resolve(self, subject):
+        return {"not": "a Policy instance"}
+
+
+def test_a_policy_provider_returning_the_wrong_type_fails_closed(catalog):
+    # A buggy provider is the host's bug, not the query's -- it must raise
+    # ConfigurationError, never silently proceed with a malformed object.
+    compiler = SqlCompiler(catalog=catalog, policy_provider=_ReturnsWrongType())
+    with pytest.raises(ConfigurationError, match="expected Policy"):
+        compiler.compile("SELECT amount FROM orders", subject="analyst-1")
+
+
+def test_subject_label_falls_back_to_the_compile_call_subject(catalog):
+    # When the resolved Policy itself carries no subject, the label reported
+    # on CompileResult falls back to whatever subject= the caller passed to
+    # compile() -- every other fixture policy in this suite already sets
+    # Policy.subject, so this path is otherwise never exercised.
+    subjectless = Policy.from_dict(
+        {"tables": {"public.orders": ["id", "amount"]}}
+    )
+    compiler = SqlCompiler(catalog=catalog)
+    result = compiler.compile(
+        "SELECT amount FROM orders", policy=subjectless, subject="caller-provided-id"
+    )
+    assert result.ok
+    assert result.subject == "caller-provided-id"
 
 
 def test_catalog_can_be_overridden_per_call(compiler, policy):

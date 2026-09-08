@@ -443,6 +443,19 @@ def test_pg_sleep_is_denied_by_the_function_allowlist(compiler, policy):
     assert ViolationCode.FUNCTION_NOT_ALLOWED in codes(result)
 
 
+def test_a_disallowed_function_hidden_in_a_window_clause_is_rejected(compiler, policy):
+    # A checker that only looks for bare function calls in the SELECT list
+    # would miss one wrapped in OVER (...) -- window functions are a whole
+    # allow-listed category, so this must still go through the same
+    # allow-list, not be treated as structural syntax the way CASE/EXISTS are.
+    result = compiler.compile(
+        "SELECT id, evil_window_func() OVER (ORDER BY amount) FROM orders",
+        policy=policy,
+    )
+    assert not result.ok
+    assert ViolationCode.FUNCTION_NOT_ALLOWED in codes(result)
+
+
 def test_information_schema_probing_is_denied_as_unknown(compiler, policy):
     result = compiler.compile("SELECT * FROM information_schema.columns", policy=policy)
     assert not result.ok

@@ -75,6 +75,10 @@ def test_fetch_is_not_denied():
         "COPY orders TO '/tmp/leak.csv'",
         "COMMIT",
         "ROLLBACK",
+        "MERGE INTO orders USING orders AS src ON orders.id = src.id WHEN MATCHED THEN DELETE",
+        "CALL some_proc()",
+        "EXECUTE some_stmt",
+        "PREPARE some_stmt AS SELECT 1",
     ],
 )
 def test_non_select_roots_are_rejected(sql):
@@ -97,6 +101,20 @@ def test_the_statement_type_is_reported_for_the_repair_loop():
 
 def test_select_is_an_allowed_root():
     assert exp.Select in ALLOWED_ROOT_TYPES
+
+
+def test_a_bare_parenthesized_select_is_still_walked():
+    # A top-level (SELECT ...) is exp.Paren wrapping exp.Select -- an allowed
+    # root, but only if the pass still walks inside it rather than treating
+    # the parenthesis as opaque.
+    assert guard("(SELECT id FROM orders)") == []
+
+
+def test_a_write_inside_a_bare_paren_root_is_still_caught():
+    assert (
+        ViolationCode.FORBIDDEN_EXPRESSION
+        in codes(guard("(WITH d AS (DELETE FROM orders RETURNING id) SELECT * FROM d)"))
+    )
 
 
 # -- the whole tree, not just the root ---------------------------------------
@@ -174,6 +192,14 @@ def test_an_unmodelled_statement_is_labelled_by_its_keyword():
         "expression_type"
     )
     assert "VACUUM" in label
+
+
+def test_unmodelled_statement_with_no_keyword_gets_a_generic_label():
+    # _friendly()'s fallback for an exp.Command whose `this` is empty --
+    # every other unmodelled-statement test here has a real leading keyword.
+    command = exp.Command(this="")
+    violations = check_read_only(command)
+    assert violations[0].details["statement_type"] == "unsupported statement"
 
 
 # -- the deny list itself ----------------------------------------------------

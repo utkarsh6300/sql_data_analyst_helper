@@ -29,7 +29,11 @@ def normalize_identifier(name: str, dialect: Optional[str], quoted: bool = False
     identifier = exp.to_identifier(name, quoted=quoted)
     if identifier is None:
         raise ConfigurationError(f"{name!r} is not a usable identifier")
-    return Dialect.get_or_raise(dialect).normalize_identifier(identifier).name
+    try:
+        resolved_dialect = Dialect.get_or_raise(dialect)
+    except Exception as exc:
+        raise ConfigurationError(f"{dialect!r} is not a supported SQL dialect") from exc
+    return resolved_dialect.normalize_identifier(identifier).name
 
 
 @dataclass(frozen=True, order=True)
@@ -59,7 +63,10 @@ class TableRef:
         if not raw or not raw.strip():
             raise ConfigurationError("table name cannot be empty")
 
-        table = exp.to_table(raw.strip(), dialect=dialect)
+        try:
+            table = exp.to_table(raw.strip(), dialect=dialect)
+        except Exception as exc:
+            raise ConfigurationError(f"{raw!r} does not name a table") from exc
         if table.catalog:
             raise ConfigurationError(
                 f"three-part name {raw!r} is not supported; "
