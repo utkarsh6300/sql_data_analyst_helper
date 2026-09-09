@@ -33,6 +33,7 @@ from .passes.authorize import authorize
 from .passes.parse import parse_single_statement
 from .passes.readonly import check_read_only
 from .passes.resolve import resolve
+from .passes.rowsec import apply_row_filters
 from .policy import Policy, PolicyProvider
 
 
@@ -143,37 +144,45 @@ class SqlCompiler:
             str(subject) if subject is not None else None
         )
 
-        def rejected(violations: List[Violation]) -> CompileResult:
+        def rejected(
+            violations: List[Violation],
+            tables: Optional[List[str]] = None,
+            columns: Optional[List[str]] = None,
+        ) -> CompileResult:
             return CompileResult(
-                ok=False, violations=violations, subject=subject_label
+                ok=False,
+                violations=violations,
+                subject=subject_label,
+                tables=tables or [],
+                columns=columns or [],
             )
 
         # Pass 1: exactly one parseable statement. Anything the pass did not
         # anticipate (e.g. sqlglot's recursion limit on pathological input)
         # must fail closed rather than crash the host -- see
         # _internal_error_violation.
-        try:
-            statement, violations = parse_single_statement(sql, active_catalog.dialect)
-        except Exception as exc:
-            return rejected([_internal_error_violation(exc)])
+        ok, outcome = self._run_pass(lambda: parse_single_statement(sql, active_catalog.dialect))
+        if not ok:
+            return rejected([outcome])
+        statement, violations = outcome
         if violations or statement is None:
             return rejected(violations)
 
         # Pass 2: prove it is a pure read before doing any further work.
-        try:
-            violations = check_read_only(statement)
-        except Exception as exc:
-            return rejected([_internal_error_violation(exc)])
+        ok, outcome = self._run_pass(lambda: check_read_only(statement))
+        if not ok:
+            return rejected([outcome])
+        violations = outcome
         if violations:
             return rejected(violations)
 
         # Pass 3: resolve every name against the catalog. Anything the pass
         # did not anticipate must fail closed rather than reach the caller as
         # a raw exception -- see _internal_error_violation.
-        try:
-            resolved, violations = resolve(statement, active_catalog)
-        except Exception as exc:
-            return rejected([_internal_error_violation(exc)])
+        ok, outcome = self._run_pass(lambda: resolve(statement, active_catalog))
+        if not ok:
+            return rejected([outcome])
+        resolved, violations = outcome
         if violations or resolved is None:
             return rejected(violations)
 
@@ -183,18 +192,27 @@ class SqlCompiler:
         )
 
         # Pass 4: authorize, collecting every violation for the repair loop.
-        try:
-            violations = authorize(resolved, active_policy)
-        except Exception as exc:
-            return rejected([_internal_error_violation(exc)])
-        if violations:
-            result = rejected(violations)
+        ok, outcome = self._run_pass(lambda: authorize(resolved, active_policy))
+        if not ok:
             # Audit still wants to know what was attempted.
-            result.tables = tables
-            result.columns = columns
-            return result
+            return rejected([outcome], tables=tables, columns=columns)
+        violations = outcome
+        if violations:
+            # Audit still wants to know what was attempted.
+            return rejected(violations, tables=tables, columns=columns)
 
-        # Pass 5: regenerate. This, and only this, is what may be executed.
+        # Pass 5: apply any row-level filters recorded on the policy. Runs
+        # only after authorization succeeds, on the tree that will actually
+        # be rendered -- see passes/rowsec.py for why appending a WHERE
+        # clause to the outer statement instead would fail open.
+        ok, outcome = self._run_pass(
+            lambda: apply_row_filters(resolved, active_policy, active_catalog)
+        )
+        if not ok:
+            # Audit still wants to know what was attempted.
+            return rejected([outcome], tables=tables, columns=columns)
+
+        # Pass 6: regenerate. This, and only this, is what may be executed.
         try:
             safe_sql = resolved.expression.sql(
                 dialect=active_catalog.dialect, pretty=self.pretty
@@ -233,6 +251,23 @@ class SqlCompiler:
         ).raise_for_violations()
         assert result.sql is not None  # guaranteed by ok=True
         return result.sql
+
+    @staticmethod
+    def _run_pass(fn):
+        """Run one compiler pass, fail-closed.
+
+        Returns ``(True, fn()'s result)`` on success or ``(False,
+        internal-error violation)`` if ``fn`` raised something unanticipated.
+        ``ConfigurationError`` is not caught: it means the host wired
+        something wrong, and reporting that as "access denied" would hide
+        the bug (see the ``compile`` docstring), so it propagates instead.
+        """
+        try:
+            return True, fn()
+        except ConfigurationError:
+            raise
+        except Exception as exc:
+            return False, _internal_error_violation(exc)
 
     def _resolve_policy(self, policy: Optional[Policy], subject: Any) -> Policy:
         if policy is not None:

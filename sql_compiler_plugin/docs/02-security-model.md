@@ -297,35 +297,48 @@ collection entirely, so they are invisible to the allow-list rather than
 failing it. A genuine function call — including a dangerous one like
 `pg_read_file` — is unaffected; only structural syntax is excluded.
 
+## Row-level security (defence in depth, not the boundary)
+
+`TablePolicy.row_filter` is enforced by `passes/rowsec.py`, which runs after
+authorization succeeds. Every *occurrence* of a base table (one per FROM/JOIN
+item, tracked separately from any same-named CTE) is replaced with a secured
+derived table:
+
+```sql
+-- policy: row_filter="tenant_id = current_setting('app.tenant_id')::int"
+FROM orders o
+-- becomes
+FROM (SELECT * FROM orders WHERE tenant_id = current_setting('app.tenant_id')::int) AS o
+```
+
+This is the shape [chat.txt](notes/chat.txt) originally proposed, done the way
+[chat2-1.txt](notes/chat2-1.txt) shows it has to be done to actually work:
+
+- The filter travels with the table reference itself, so it lands inside a
+  CTE's own definition rather than an outer `SELECT` that never chose the
+  filtered column — the naive "append `WHERE` to the outer statement"
+  approach produces `SELECT * FROM high_value_orders WHERE tenant_id = 123`
+  for a CTE that never selected `tenant_id`, a **broken query**.
+- A self-join (`FROM orders a JOIN orders_archive b`) gets one filtered copy
+  per occurrence, so neither side is left unfiltered the way an unqualified
+  `tenant_id` appended once would be — silently binding to one relation, or
+  erroring as ambiguous.
+- The predicate is parsed with `sqlglot.parse` into an AST node and
+  re-emitted, never built as a string and re-parsed, so there is no channel
+  for injection inside the anti-injection layer.
+
+**It is still not the boundary.** An in-process rewriter is bypassed by any
+code path that reaches the database without going through it; Postgres RLS is
+unconditional regardless of caller. Treat `row_filter` as a second layer
+behind RLS, not a replacement for it — see
+[the minimum database layer to add next](#the-minimum-database-layer-to-add-next).
+A table with no `row_filter` configured is exactly as exposed as it was
+before this pass existed: nothing fills in a filter the policy did not ask
+for.
+
 ## What this does **not** defend against
 
 Take this section literally before putting the package in front of real data.
-
-### Row-level security — not implemented
-
-`TablePolicy.row_filter` is **recorded and not acted on.** There is currently
-nothing stopping an authorized user from reading *every* row of a table they
-have table-level access to.
-
-This is deliberate, not an oversight. Injecting `WHERE tenant_id = …` into the
-AST is the approach [chat.txt](notes/chat.txt) proposes and
-[chat2-1.txt](notes/chat2-1.txt) demolishes:
-
-- Appending to every `SELECT` with a `FROM` produces
-  `SELECT * FROM high_value_orders WHERE tenant_id = 123` for a CTE that never
-  selected `tenant_id` — a **broken query**.
-- On `FROM orders a JOIN orders_archive b`, an unqualified `tenant_id` either
-  errors as ambiguous or binds to one relation and leaves the other
-  **completely unfiltered**. Failing open on a security predicate is the worst
-  available failure mode.
-- Building the predicate as an f-string, then re-parsing it, reintroduces
-  classic SQL injection *inside the anti-injection layer*.
-
-Row security belongs in Postgres RLS, where enforcement is unconditional. If a
-defence-in-depth AST version is added later, the correct shape is replacing
-each base table node with a secured derived table —
-`(SELECT * FROM orders WHERE tenant_id = ?) AS orders` — which composes through
-aliases, joins and CTEs. It is still not the boundary.
 
 ### Inference attacks
 

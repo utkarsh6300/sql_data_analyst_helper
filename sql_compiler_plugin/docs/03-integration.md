@@ -361,10 +361,12 @@ with engine.begin() as conn:
     rows = conn.execute(text(result.sql)).fetchall()
 ```
 
-Remember that **row-level security is not implemented here** — `row_filter` is
-recorded and not enforced. Without the RLS policies above, a caller with table
-access reads every row. See
-[Security model](02-security-model.md#what-this-does-not-defend-against).
+Remember that **`row_filter` is defence in depth, not the boundary** — it is
+enforced in-process (`passes/rowsec.py`), but an in-process rewriter is
+bypassed by any code path that reaches the database without going through it.
+Without the RLS policies above, a caller who reaches the database any other
+way reads every row. See
+[Security model](02-security-model.md#row-level-security-defence-in-depth-not-the-boundary).
 
 Also: never return raw database errors to a user, and key any query cache by
 policy identity as well as by query text.

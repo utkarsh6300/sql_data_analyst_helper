@@ -187,6 +187,7 @@ def _extract(
                     return None, [_unsupported_table_expression_violation()]
                 source_refs[name] = ref
                 resolved.base_tables.add(ref)
+                resolved.table_nodes.append((ref, source))
 
         # A correlated subquery references columns owned by an enclosing
         # scope. They are unresolvable here but appear again in that enclosing

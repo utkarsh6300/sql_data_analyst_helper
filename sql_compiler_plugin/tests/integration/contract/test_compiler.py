@@ -14,6 +14,8 @@ from sql_compiler import (
     RepairAction,
     SqlCompiler,
     StaticPolicyProvider,
+    TablePolicy,
+    TableRef,
     ViolationCode,
     compile_sql,
 )
@@ -288,6 +290,81 @@ def test_result_serializes_to_json_safe_data(compiler, policy):
 
     payload = compiler.compile("SELECT salary FROM employees", policy=policy).to_dict()
     assert json.loads(json.dumps(payload))["ok"] is False
+
+
+# -- row-level security ------------------------------------------------------
+
+_ORDERS = TableRef("public", "orders")
+_CUSTOMERS = TableRef("public", "customers")
+
+
+def test_row_filter_is_applied_to_the_regenerated_sql(catalog):
+    # TablePolicy.row_filter used to be recorded and never enforced
+    # (docs/04-decisions.md#2). This is the end-to-end version of the
+    # passes/rowsec.py unit tests: the filter must show up in what actually
+    # gets executed.
+    policy = Policy(
+        tables={
+            _ORDERS: TablePolicy(
+                table=_ORDERS,
+                allowed_columns=frozenset({"amount"}),
+                row_filter="tenant_id = 7",
+            )
+        }
+    )
+    result = SqlCompiler(catalog=catalog).compile("SELECT amount FROM orders", policy=policy)
+    assert result.ok
+    assert "tenant_id" in result.sql
+    assert sqlglot.parse_one(result.sql, dialect=catalog.dialect) is not None
+
+
+def test_row_filter_does_not_change_what_is_reported_as_read(catalog):
+    # The filter narrows rows, not the set of tables/columns the query reads
+    # -- audit logging should be unaffected by whether row security fired.
+    policy = Policy(
+        tables={
+            _ORDERS: TablePolicy(
+                table=_ORDERS,
+                allowed_columns=frozenset({"amount"}),
+                row_filter="tenant_id = 7",
+            )
+        }
+    )
+    result = SqlCompiler(catalog=catalog).compile("SELECT amount FROM orders", policy=policy)
+    assert result.tables == ["public.orders"]
+    assert result.columns == ["public.orders.amount"]
+
+
+def test_row_filter_applies_only_to_the_filtered_table_in_a_join(catalog):
+    policy = Policy(
+        tables={
+            _ORDERS: TablePolicy(
+                table=_ORDERS,
+                allowed_columns=frozenset({"id", "customer_id", "amount"}),
+                row_filter="tenant_id = 7",
+            ),
+            _CUSTOMERS: TablePolicy(
+                table=_CUSTOMERS, allowed_columns=frozenset({"id", "name"})
+            ),
+        }
+    )
+    result = SqlCompiler(catalog=catalog).compile(
+        "SELECT o.amount, c.name FROM orders o JOIN customers c ON o.customer_id = c.id",
+        policy=policy,
+    )
+    assert result.ok
+    assert result.sql.count("tenant_id") == 1
+
+
+def test_a_malformed_row_filter_is_a_configuration_error_not_a_denial(catalog):
+    # Written into the policy by the host, not produced by the model -- a
+    # broken row_filter is the host's bug and must not be reported as
+    # "access denied", the same reasoning _resolve_policy already applies.
+    policy = Policy(
+        tables={_ORDERS: TablePolicy(table=_ORDERS, row_filter="not valid sql (((")}
+    )
+    with pytest.raises(ConfigurationError):
+        SqlCompiler(catalog=catalog).compile("SELECT amount FROM orders", policy=policy)
 
 
 # -- convenience wrapper -----------------------------------------------------

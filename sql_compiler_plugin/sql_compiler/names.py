@@ -64,6 +64,11 @@ class TableRef:
             raise ConfigurationError("table name cannot be empty")
 
         try:
+            Dialect.get_or_raise(dialect)
+        except Exception as exc:
+            raise ConfigurationError(f"{dialect!r} is not a supported SQL dialect") from exc
+
+        try:
             table = exp.to_table(raw.strip(), dialect=dialect)
         except Exception as exc:
             raise ConfigurationError(f"{raw!r} does not name a table") from exc

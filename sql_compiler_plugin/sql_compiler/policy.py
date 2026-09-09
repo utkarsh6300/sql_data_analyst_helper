@@ -92,8 +92,10 @@ class TablePolicy:
     table: TableRef
     allowed_columns: ColumnGrant = ALL_COLUMNS
     denied_columns: FrozenSet[str] = frozenset()
-    #: Reserved for the row-level phase.  Phase 1 records it and does not act
-    #: on it; row security belongs in the database, not in an AST rewriter.
+    #: A boolean SQL predicate, evaluated against this table's own columns,
+    #: enforced by ``passes/rowsec.py`` as a filtered derived table. Defence
+    #: in depth: row security still belongs in the database first (Postgres
+    #: RLS), and this is a second layer behind it, not a replacement.
     row_filter: Optional[str] = None
 
     def permits_column(self, column: str) -> bool:

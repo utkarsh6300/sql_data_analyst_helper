@@ -30,15 +30,16 @@ resolved names.
 
 ## 2. The database must remain the security boundary
 
-**Decision.** This package is a fast-fail and feedback layer. Row-level
-security is **not implemented** — `TablePolicy.row_filter` is recorded and not
-acted on.
+**Decision.** This package is a fast-fail and feedback layer. Postgres RLS is
+the security boundary; `TablePolicy.row_filter` (enforced by
+`passes/rowsec.py`) is defence in depth, never a substitute for it.
 
-**[chat.txt](notes/chat.txt) proposed** AST injection of `WHERE tenant_id = …` as
-the row-security mechanism, via `ast.transform()` over every `Select`.
+**[chat.txt](notes/chat.txt) originally proposed** AST injection of
+`WHERE tenant_id = …` as the row-security mechanism, via `ast.transform()` over
+every `Select`.
 
-**Why not.** [chat2-1.txt](notes/chat2-1.txt) shows that approach failing three
-different ways:
+**Why not that shape.** [chat2-1.txt](notes/chat2-1.txt) shows that approach
+failing three different ways:
 
 - It appends the filter to selects over **CTEs and derived tables**, producing
   `SELECT * FROM high_value_orders WHERE tenant_id = 123` where the CTE never
@@ -53,12 +54,27 @@ different ways:
 
 More fundamentally: an in-process rewriter is bypassed by any code path that
 reaches the database without going through it. The database applies its rules
-regardless of caller.
+regardless of caller — which is exactly why this remains defence in depth, not
+the boundary, even once enforced.
 
-**To add it later:** replace each base table node with a secured derived table
-— `(SELECT * FROM orders WHERE tenant_id = ?) AS orders` — which composes
-through aliases, joins and CTEs. Build predicates as AST nodes, never strings.
-Treat it as defence in depth behind Postgres RLS, never as the boundary.
+**What is implemented instead (`passes/rowsec.py`, Pass 5, after
+authorization succeeds):** every base-table *occurrence* — one entry per
+FROM/JOIN item, from `ResolvedQuery.table_nodes`, never a name-based
+`find_all` that could also match a same-named CTE — is replaced with a
+secured derived table: `orders` becomes
+`(SELECT * FROM orders WHERE tenant_id = ?) AS orders`. This closes all three
+failure modes above: the filter travels with the table reference itself, so
+it lands inside a CTE's own definition rather than on an outer select that
+never chose the filtered column; a self-join gets one filtered copy per side
+instead of an ambiguous or one-sided predicate; and the predicate is parsed
+with `sqlglot.parse` into an AST node and re-emitted, never string-formatted,
+so there is nothing to re-inject through. A `row_filter` that fails to parse,
+or smuggles in a second statement, is a `ConfigurationError` — it was written
+into the policy by the host, not produced by the model, so treating it as a
+query violation would misattribute the bug.
+
+**To reverse:** remove the call to `apply_row_filters` from `compiler.py` and
+`TablePolicy.row_filter` goes back to being recorded and inert.
 
 ---
 
@@ -285,9 +301,10 @@ rewrite.
 
 ## Open questions for the next phase
 
-1. **Where does RLS get configured** — Postgres policies keyed on
-   `SET LOCAL app.tenant_id`, or secured views per role? Decides whether
-   `row_filter` ever becomes executable.
+1. **Where does the database-side RLS get configured** — Postgres policies
+   keyed on `SET LOCAL app.tenant_id`, or secured views per role? `row_filter`
+   is now enforced in-process (decision 2), but that is defence in depth, not
+   a substitute for the database policy this question is about.
 2. **Cost gating**: `EXPLAIN` before execution, or just `statement_timeout` and
    an enforced `LIMIT`? The former needs a connection, which changes the
    package's shape.
